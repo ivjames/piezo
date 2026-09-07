@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>piezo — sound board</title>
+<link rel="stylesheet" href="/styles.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='13' font-size='13'>🔊</text></svg>">
+</head>
+<body>
+
+<header>
+  <h1>piezo</h1>
+  <span class="sub" id="status">loading…</span>
+  <div class="spacer"></div>
+  <label class="knob">master
+    <input type="range" id="master" min="0" max="1" step="0.01" value="0.7">
+    <output id="master-out">-3 dB</output>
+  </label>
+  <label class="knob">target RMS
+    <input type="number" id="target-rms" value="-20" min="-40" max="-6" step="1">
+    <span class="unit">dBFS</span>
+  </label>
+  <button id="match-all" title="Set every cue's trim so they all measure at the target RMS">match library</button>
+  <button id="export" title="Write export/cues.js and download it">export</button>
+</header>
+
+<main>
+  <section class="board">
+    <div class="bar">
+      <h2>board</h2>
+      <span class="hint">click a pad, or press its key. cues overlap.</span>
+    </div>
+    <div id="pads" class="pads"></div>
+
+    <div class="bar">
+      <h2>generate</h2>
+      <span class="hint" id="model-hint"></span>
+    </div>
+    <div class="prompt">
+      <textarea id="prompt" rows="3" placeholder="heavy oak door slamming shut, heard from down a corridor"></textarea>
+      <div class="row">
+        <button id="generate" class="primary">generate</button>
+        <button id="refine" title="Revise the selected cue with the text above">refine selected</button>
+        <span class="hint" id="gen-status"></span>
+      </div>
+      <ol id="history" class="history"></ol>
+    </div>
+  </section>
+
+  <section class="inspector" id="inspector" hidden>
+    <div class="bar">
+      <h2 id="cue-name">—</h2>
+      <span class="hint" id="cue-desc"></span>
+    </div>
+
+    <div class="row">
+      <button id="play" class="primary">play</button>
+      <label class="knob">key <input type="text" id="cue-key" maxlength="1" size="1"></label>
+      <button id="save">save</button>
+      <button id="normalize" title="Trim this cue to the target RMS">normalise</button>
+      <button id="wav">wav</button>
+      <button id="delete" class="danger">delete</button>
+    </div>
+
+    <div class="views">
+      <figure><figcaption>waveform</figcaption><canvas id="wave" width="640" height="120"></canvas></figure>
+      <figure><figcaption>spectrum</figcaption><canvas id="spec" width="640" height="120"></canvas></figure>
+    </div>
+
+    <table class="measure" id="measure"></table>
+
+    <div class="bar"><h2>parameters</h2><span class="hint">sliders re-render offline as you move them</span></div>
+    <div id="params" class="params"></div>
+
+    <div class="bar">
+      <h2>code</h2>
+      <span class="hint">this runs in your browser — read it before you play it</span>
+    </div>
+    <textarea id="code" class="code" spellcheck="false" rows="18"></textarea>
+    <div class="row">
+      <button id="apply">apply &amp; re-measure</button>
+      <button id="revert">revert</button>
+      <span class="hint" id="code-status"></span>
+    </div>
+
+    <details id="diff-box" hidden>
+      <summary>changes from the previous version</summary>
+      <pre id="diff" class="diff"></pre>
+    </details>
+  </section>
+</main>
+
+<script type="module" src="/app.js"></script>
+</body>
+</html>

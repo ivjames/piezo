@@ -1,0 +1,107 @@
+{
+  "id": "pc-take",
+  "name": "Pick Up",
+  "description": "two rising notes: something acquired",
+  "key": "5",
+  "prompt": "PC speaker: two rising notes: something acquired",
+  "params": [
+    {
+      "key": "freq",
+      "label": "Pitch",
+      "min": 300,
+      "max": 1200,
+      "step": 5,
+      "default": 659,
+      "unit": "Hz"
+    },
+    {
+      "key": "interval",
+      "label": "Interval",
+      "min": 1.05,
+      "max": 2.5,
+      "step": 0.01,
+      "default": 1.5,
+      "unit": "x"
+    },
+    {
+      "key": "dur",
+      "label": "Note length",
+      "min": 0.02,
+      "max": 0.2,
+      "step": 0.005,
+      "default": 0.045,
+      "unit": "s"
+    },
+    {
+      "key": "level",
+      "label": "Level",
+      "min": 0.02,
+      "max": 0.4,
+      "step": 0.005,
+      "default": 0.07,
+      "unit": ""
+    }
+  ],
+  "code": "// IBM PC speaker: one 1-bit square wave through a ~1 inch piezo disc.\n//\n// Source: channel 2 of the 8253 divides a 1.193182 MHz clock by an integer, so\n// the speaker cannot hit an arbitrary pitch -- it snaps to 1193182/n, and the\n// error grows with pitch. One hard square: no volume, no timbre, no second voice.\n//\n// Transducer: the disc has almost no output below ~400 Hz, a loud resonance\n// near 3 kHz and nothing above ~7 kHz. Low notes arrive as harmonics with the\n// fundamental missing, which is why a PC-speaker footstep is a buzz, not a thud.\nconst PIT = 1193182;\nconst pitch = (f) => PIT / Math.min(65535, Math.max(1, Math.round(PIT / f)));\n\nconst osc = ctx.createOscillator();\nosc.type = 'square';\nosc.frequency.value = 1000;\n\nconst drive = ctx.createGain();               // slam the clipper, so the\ndrive.gain.value = 12;                        // band-limited oscillator gets\nconst clip = ctx.createWaveShaper();          // real square edges back\nconst curve = new Float32Array(1024);\nfor (let i = 0; i < curve.length; i++) {\n  const x = (i / (curve.length - 1)) * 2 - 1;\n  curve[i] = Math.max(-1, Math.min(1, x * 12));\n}\nclip.curve = curve;\nclip.oversample = '4x';\n\nconst gate = ctx.createGain();                // the speaker is a switch: the\ngate.gain.value = 0;                          // hardware cannot fade\n\nconst hp1 = ctx.createBiquadFilter(); hp1.type = 'highpass'; hp1.frequency.value = 380; hp1.Q.value = 0.7;\nconst hp2 = ctx.createBiquadFilter(); hp2.type = 'highpass'; hp2.frequency.value = 380; hp2.Q.value = 0.7;\nconst res = ctx.createBiquadFilter(); res.type = 'peaking'; res.frequency.value = 3300; res.Q.value = 3.2; res.gain.value = 13;\nconst body = ctx.createBiquadFilter(); body.type = 'peaking'; body.frequency.value = 1050; body.Q.value = 1.4; body.gain.value = 5;\nconst lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 7200; lp.Q.value = 0.8;\n\nconst comp = ctx.createDynamicsCompressor();  // a small element, over-driven\ncomp.threshold.value = -14; comp.knee.value = 6; comp.ratio.value = 10;\ncomp.attack.value = 0.002; comp.release.value = 0.08;\n\nosc.connect(drive); drive.connect(clip); clip.connect(gate);\ngate.connect(hp1); hp1.connect(hp2); hp2.connect(res); res.connect(body);\nbody.connect(lp); lp.connect(comp); comp.connect(out);\n\n// One note: pitch set, speaker on, speaker off. No ramps anywhere.\nconst tone = (f, t, d, v) => {\n  osc.frequency.setValueAtTime(pitch(f), t);\n  gate.gain.setValueAtTime(v, t);\n  gate.gain.setValueAtTime(0, t + d);\n};\n\ntone(p.freq, t0, p.dur, p.level);\ntone(p.freq * p.interval, t0 + p.dur, p.dur, p.level);\nconst end = t0 + p.dur * 2;\nosc.start(t0);\nosc.stop(end + 0.02);\nreturn end;\n",
+  "gain": 1,
+  "order": 4,
+  "values": {
+    "freq": 659,
+    "interval": 1.5,
+    "dur": 0.045,
+    "level": 0.07
+  },
+  "measure": {
+    "peak": 0.5596227645874023,
+    "peakDb": -5.04,
+    "rms": 0.18213707400912588,
+    "rmsDb": -14.79,
+    "duration": 0.1015,
+    "onset": 0.0104,
+    "declaredDuration": 0.09,
+    "centroid": 2630,
+    "peakFreq": 991,
+    "bands": [
+      {
+        "name": "sub",
+        "lo": 0,
+        "hi": 80,
+        "frac": 0
+      },
+      {
+        "name": "low",
+        "lo": 80,
+        "hi": 250,
+        "frac": 0.0002
+      },
+      {
+        "name": "body",
+        "lo": 250,
+        "hi": 800,
+        "frac": 0.2272
+      },
+      {
+        "name": "mid",
+        "lo": 800,
+        "hi": 2500,
+        "frac": 0.32
+      },
+      {
+        "name": "high",
+        "lo": 2500,
+        "hi": 8000,
+        "frac": 0.409
+      },
+      {
+        "name": "air",
+        "lo": 8000,
+        "hi": null,
+        "frac": 0.0437
+      }
+    ],
+    "sampleRate": 44100,
+    "clipped": false
+  },
+  "createdAt": "2026-09-07T17:18:27.191Z",
+  "updatedAt": "2026-09-07T17:18:27.191Z"
+}

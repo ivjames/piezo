@@ -1,0 +1,22 @@
+{
+  "name": "piezo",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Local tool for designing, auditioning, measuring and exporting game sound cues as Web Audio programs.",
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node test/verify.mjs",
+    "measure": "node test/verify.mjs --write",
+    "seed": "node tools/seed.mjs"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.124.0"
+  },
+  "devDependencies": {
+    "playwright": "1.56.1"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
