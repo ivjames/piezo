@@ -142,6 +142,15 @@ try {
     cue.values = { early: 0 };                       // and back again
     await window.__piezo.remeasure(cue);
     r.recoveredVerdict = cue._verdict;
+
+    // A call that never returned a cue is not a measurement: its empty body
+    // renders as silence, which must not be allowed to become the verdict.
+    const failed = {
+      name: 'failed', code: '', params: [], values: {}, gain: 1,
+      _verdict: 'api-error', _error: 'rate limited by the Anthropic API',
+    };
+    await window.__piezo.remeasure(failed);
+    r.apiVerdict = failed._verdict;
     return r;
   });
   if (early.goodVerdict !== 'pass') fail(`negative-time check: expected pass, got ${early.goodVerdict}`);
@@ -152,6 +161,7 @@ try {
   if (early.badVerdict !== 'threw') fail(`negative-time check: verdict stayed ${early.badVerdict} after a failed render`);
   if (early.badMeasure !== null) fail('negative-time check: a failed render left a measurement behind');
   if (early.recoveredVerdict !== 'pass') fail(`negative-time check: verdict stuck at ${early.recoveredVerdict}`);
+  if (early.apiVerdict !== 'api-error') fail(`negative-time check: api-error became ${early.apiVerdict} on a re-measure`);
 
   if (pageErrors.length) for (const e of pageErrors) fail(e);
 

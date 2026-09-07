@@ -89,9 +89,13 @@ async function remeasure(cue) {
 /* A bake-off verdict is a judgement about a measurement, so it has to be
    re-made whenever the measurement is. Otherwise a candidate that passed at
    its defaults and throws two slider-drags later keeps saying PASS with the
-   exception printed underneath it. */
+   exception printed underneath it.
+
+   Except api-error, which is a judgement about a call that never returned a
+   cue. Rendering its empty body succeeds -- ten seconds of silence -- and
+   would quietly downgrade "the model never answered" to "silent". */
 function reverdict(cue) {
-  if (!cue._verdict) return;
+  if (!cue._verdict || cue._verdict === 'api-error') return;
   cue._verdict = verdictOf({ ok: true, measure: cue.measure, warnings: cue._warnings });
 }
 
@@ -625,7 +629,11 @@ function renderCompare() {
       pad.addEventListener('click', () => {
         select(c);
         renderCompare();
-        if (c.code) fire(c);
+        // A candidate with no code is a call that failed; there is nothing to
+        // play and nothing to measure, and rendering its empty body would
+        // overwrite the error with ten seconds of silence.
+        if (!c.code) return;
+        fire(c);
         refreshSelected().catch(() => {});
       });
       cells.append(pad);

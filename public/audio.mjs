@@ -55,9 +55,13 @@ const BAD_TIME = [
     'the cue scheduled an event before t0. Offline rendering starts at t0 = 0, '
     + 'so anything earlier is a negative time -- live playback hides this, '
     + 'because there t0 is seconds into the context.'],
+  // Not necessarily a time: `setValueAtTime(NaN, t)` and `setValueAtTime(1,
+  // NaN)` differ only by the words "float" and "double", and setting .value
+  // to NaN reads the same again. So say what is certain -- a number went in
+  // that is not a number -- and leave which argument to the message itself.
   [/non-finite|not a finite/i,
-    'the cue computed a NaN or Infinite time -- usually a divide by zero or a '
-    + 'parameter it never declared.'],
+    'the cue passed a NaN or an Infinity to the Web Audio API -- usually a '
+    + 'divide by zero, or a parameter it reads but never declared.'],
 ];
 
 function explain(err, t0) {
