@@ -22,11 +22,26 @@ npm start                   # http://127.0.0.1:8971
 
 The key stays on the server. It is read from `.env`, used only by
 `POST /api/generate`, and never sent to the browser. `.env` is gitignored;
-`.env.example` is the only thing committed. The server binds to `127.0.0.1` —
-this is a local dev tool, not a site.
+`.env.example` is the only thing committed, and the server binds to
+`127.0.0.1`.
 
 Without a key everything except generation works: the seeded library plays,
-measures, normalises and exports.
+measures, normalises and exports. That is not just a degraded mode — it is
+exactly how the deployed copy runs.
+
+## Local tool, hosted board
+
+The two halves run in different places, and only one of them needs a key:
+
+- **Authoring is local.** You generate and refine cues here, on your own
+  machine, and land the keepers in `library/` through a PR.
+- **The board is hosted**, at `piezo.lab980.com`, with **no key on the box**.
+  It serves what's committed: pads, measurements, sliders, level matching, WAV
+  and `export/cues.js`. `/api/generate` answers `503` there and the generate
+  buttons are disabled, which is the intended state rather than a fault.
+
+So the hosted copy has nothing to spend and runs no code that isn't in this
+repo. `DEPLOY.md` is the runbook.
 
 ## The board
 

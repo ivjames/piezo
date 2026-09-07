@@ -57,43 +57,28 @@ dump — nothing replays it at boot without the hook.
 |---|---|
 | `PORT` | `8073` — must match the vhost's `proxy_pass`. `provision-site` seeds this; leave it alone. |
 | `HOST` | `127.0.0.1`. The default already, and it must stay loopback: nginx is the only thing that should reach the app. |
-| `ANTHROPIC_API_KEY` | the key `POST /api/generate` spends. **This file is the only copy on the box.** Without it the board still plays, measures, normalises and exports the saved library — only generation is disabled — so deploying with the key absent is a valid, and safer, state. |
-| `SOUNDBOARD_MODEL` | optional; defaults to `claude-opus-5`. Only set it to pin a different model deliberately. |
+| `ANTHROPIC_API_KEY` | **not set here.** Generating cues is a local step — see below. |
+| `SOUNDBOARD_MODEL` | optional; defaults to `claude-opus-5`. Nothing on this box calls the API, so it has no effect here. |
 
-### Lock the vhost — do this before the first deploy
+### No key goes on the droplet
 
-`provision-site` writes an open vhost, and an open `piezo` is a stranger
-spending your Anthropic key and running model-written JavaScript in their
-browser. Basic auth over the whole site, the way `photos` does it:
+The deployed board serves what is committed: the pads, the offline
+measurements, the sliders, level matching, WAV download and
+`export/cues.js`. Every one of those runs on the cue programs already in
+`library/`, and none of them calls the Anthropic API.
 
-```bash
-# once per droplet, if it isn't there already
-apt-get install -y apache2-utils
+Generating and refining cues happens on your own machine, where the key lives,
+and the cues worth keeping arrive here the way every other change does — a PR
+into `main`, then `piezo deploy`. So `/var/www/piezo/.env` holds `PORT` and
+nothing else, `/api/generate` answers `503`, and the board disables its
+generate and refine buttons because `/api/health` reports no key.
 
-htpasswd -c /etc/nginx/.htpasswd-piezo jimmy      # prompts for a password
-chmod 640 /etc/nginx/.htpasswd-piezo
-chown root:www-data /etc/nginx/.htpasswd-piezo
-```
-
-Then in the `:443` server block of `/etc/nginx/sites-available/piezo.lab980.com`,
-inside the `location /` that proxies to `127.0.0.1:8073`:
-
-```nginx
-auth_basic           "piezo";
-auth_basic_user_file /etc/nginx/.htpasswd-piezo;
-```
-
-```bash
-nginx -t && systemctl reload nginx
-curl -s -o /dev/null -w '%{http_code}\n' https://piezo.lab980.com/    # expect 401
-curl -s -o /dev/null -w '%{http_code}\n' -u jimmy:<pass> https://piezo.lab980.com/  # expect 200
-```
-
-A `200` on that first curl means the site is open — treat it as a failed
-deploy and fix it before walking away. `health-check` reads the `401` as a
-warning, which is expected here and is what `install-landing piezo.lab980.com`
-is for if you want a public front door (it sets `auth_basic off` inside an
-exact `location = /` and leaves everything behind it locked).
+That is what makes a plain public vhost fine here: there is no key to spend,
+and the only code the page executes is code that is in the repo and readable
+before it runs. Adding a key to `.env` on the box is the single change that
+would turn an open vhost into a way for strangers to spend your Anthropic
+budget — and it would buy nothing, because the local tool already generates
+better than a shared one would.
 
 ### Playwright at deploy time
 
