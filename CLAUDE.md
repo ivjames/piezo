@@ -13,7 +13,7 @@ follows is what's true of *this* site only.
 ## Shape
 
 An **app** site: nginx on `piezo.lab980.com` proxies to a pm2-managed Node
-process on `127.0.0.1:8062`, checkout at `/var/www/piezo`, pm2 fork mode,
+process on `127.0.0.1:8073`, checkout at `/var/www/piezo`, pm2 fork mode,
 process registered as `piezo`. `DEPLOY.md` is the runbook; `bin/piezo` is the
 operate CLI. No build step — `deploy` skips it, because there is no `build`
 script to run.

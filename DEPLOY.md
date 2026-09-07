@@ -3,13 +3,13 @@
 Target: **https://piezo.lab980.com** — served from the lab980 droplet (conventions in
 the `ivjames/lab980.com` repo's `CLAUDE.md`).
 
-Shape: nginx proxies to a pm2-managed Node process on `127.0.0.1:8062`,
+Shape: nginx proxies to a pm2-managed Node process on `127.0.0.1:8073`,
 with the app dir at `/var/www/piezo`.
 
 ## One-time bring-up (on the droplet, as root)
 
 ```bash
-provision-site piezo ivjames/piezo --port 8062
+provision-site piezo ivjames/piezo --port 8073
 cd /var/www/piezo
 $EDITOR .env                         # provision-site seeded PORT; add the rest
 ln -sf /var/www/piezo/bin/piezo /usr/local/bin/piezo
@@ -25,7 +25,7 @@ the droplet (a tracked-file edit there is wiped by the next deploy), and
 placeholder.
 
 Every pm2 call the CLI makes runs from a scrubbed environment: `env -i` plus
-`PATH`, `HOME`, `LANG`, `PM2_HOME` and `TERM` if set, and `PORT` (`8062`).
+`PATH`, `HOME`, `LANG`, `PM2_HOME` and `TERM` if set, and `PORT` (`8073`).
 pm2 copies the environment of the `pm2 start` call into the process and into
 `~/.pm2/dump.pm2`, so anything the calling shell holds would live on there.
 So the process gets `PORT` from the CLI and everything else from `.env` itself
@@ -37,9 +37,9 @@ otherwise it warns and leaves the previous dump alone.
 
 Two details in that first line matter more than they look:
 
-- **`--port 8062` is not optional.** Without it `provision-site` picks the
+- **`--port 8073` is not optional.** Without it `provision-site` picks the
   next free port from 8060 and writes *that* into the vhost, while this repo's
-  CLI, `.env` and app config all use `8062`. nginx then proxies to a port
+  CLI, `.env` and app config all use `8073`. nginx then proxies to a port
   nothing is listening on and every request is a 502 that looks like the app is
   down while it runs perfectly on the wrong port.
 - **`provision-site` seeds `.env` with `PORT=` itself** (only if there isn't one
@@ -55,7 +55,7 @@ dump — nothing replays it at boot without the hook.
 
 | key | what it is |
 |---|---|
-| `PORT` | `8062` — must match the vhost's `proxy_pass`. `provision-site` seeds this; leave it alone. |
+| `PORT` | `8073` — must match the vhost's `proxy_pass`. `provision-site` seeds this; leave it alone. |
 | `HOST` | `127.0.0.1`. The default already, and it must stay loopback: nginx is the only thing that should reach the app. |
 | `ANTHROPIC_API_KEY` | the key `POST /api/generate` spends. **This file is the only copy on the box.** Without it the board still plays, measures, normalises and exports the saved library — only generation is disabled — so deploying with the key absent is a valid, and safer, state. |
 | `SOUNDBOARD_MODEL` | optional; defaults to `claude-opus-5`. Only set it to pin a different model deliberately. |
@@ -76,7 +76,7 @@ chown root:www-data /etc/nginx/.htpasswd-piezo
 ```
 
 Then in the `:443` server block of `/etc/nginx/sites-available/piezo.lab980.com`,
-inside the `location /` that proxies to `127.0.0.1:8062`:
+inside the `location /` that proxies to `127.0.0.1:8073`:
 
 ```nginx
 auth_basic           "piezo";
@@ -117,7 +117,7 @@ Land changes on `main` (via a PR — see `CLAUDE.md`), then on the droplet:
 piezo deploy        # sync, npm ci, build, pm2 restart, probe, save
 ```
 
-`deploy` exits non-zero when nothing answers HTTP on `127.0.0.1:8062`
+`deploy` exits non-zero when nothing answers HTTP on `127.0.0.1:8073`
 afterwards (any status code counts as answering — an API-only app 404s on `/`;
 up to `PIEZO_PROBE_TRIES`, default 10, tries a second apart) — a dead app
 is a failed deploy, not a warning to read past, and nothing is saved. The
@@ -142,5 +142,5 @@ health-check --site piezo # the droplet-wide auditor
 
 - `PIEZO_FQDN` — default `piezo.lab980.com`
 - `PIEZO_BRANCH` — default `main`
-- `PIEZO_PORT` — default `8062`
+- `PIEZO_PORT` — default `8073`
 - `PIEZO_PROBE_TRIES` — default `10`
