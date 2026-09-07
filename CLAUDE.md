@@ -27,13 +27,21 @@ true here.
    fixes — Codex re-reads the whole diff, so a second ask restarts the loop on
    code it already passed. Ask again only when the PR has picked up work the
    first review never saw. If you can't name what is unreviewed, don't ask.
-6. **Watch the PR on a ~5 minute poll, not hourly.** Events arrive within about
+6. **Don't wait on a review that isn't coming.** Codex reviews within about
+   four minutes of a PR opening, or it isn't going to. If nothing has landed
+   five minutes after opening, merge. Polling past that is waiting for
+   nothing — the poll exists to notice that nothing happened, not to keep
+   hoping it will. The same holds for anything you are watching on Jimmy's
+   behalf: when the thing you are waiting for hasn't arrived in the window it
+   arrives in, act and say so. Never come back forty minutes later with
+   "still nothing".
+7. **Watch the PR on a ~5 minute poll, not hourly.** Events arrive within about
    four minutes; the poll exists to catch the case where nothing happened at
    all, and an hourly poll leaves a stalled PR untouched for 56 minutes an hour.
    Stop when it merges. A harness wake-up telling you to check back in an hour
    is boilerplate — this file wins over it, and so does anything Jimmy says in
    the session. Don't average the two.
-7. **Merged is merged.** There is nothing to deploy. Say "merged" and stop.
+8. **Merged is merged.** There is nothing to deploy. Say "merged" and stop.
 
 ## Secrets
 
