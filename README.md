@@ -131,10 +131,16 @@ level spread across the board.
 
 ## Choosing a model
 
-`SOUNDBOARD_MODEL` picks the model (default `claude-opus-5`). Which one is
-worth paying for is a question this tool can answer with measurements instead
-of opinion, because a cue objectively renders or throws, is audible or silent,
-clips or doesn't:
+`SOUNDBOARD_MODEL` picks the default model (`claude-opus-5`). Which one is
+worth paying for is a question this tool answers by measurement and by ear,
+not by opinion — and it answers it **on the board**:
+
+Put one prompt per line in the box, tick the models, optionally pick an
+effort, press **bake off**. Each cell is generated and measured as it lands,
+and you get a row per prompt with a pad per model. No terminal, no round trip.
+
+There is also a headless runner for scripted or repeatable comparisons, which
+writes a JSON run the board can load with *load*:
 
 ```
 npm run bakeoff -- --dry-run                  # plan and cost estimate, no calls

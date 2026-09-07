@@ -488,6 +488,70 @@ async function loadRun(name) {
   runStatus(`${state.compare.length} candidates from ${name.replace(/\.json$/, '')}`);
 }
 
+/**
+ * Run a bake-off from the board: every prompt in the box, on every ticked
+ * model, generated and measured right here. The server half is just
+ * /api/generate with a model — there was never a reason to make this a
+ * terminal round trip and come back.
+ */
+async function runBakeoff() {
+  const prompts = $('prompt').value.split('\n').map((s) => s.trim()).filter(Boolean);
+  if (!prompts.length) { runStatus('put one or more prompts in the box below, one per line', true); return; }
+
+  const models = [...document.querySelectorAll('.bo-model:checked')].map((n) => n.value);
+  if (!models.length) { runStatus('tick at least one model', true); return; }
+
+  const effort = $('bo-effort').value || null;
+  const cells = [];
+  for (const prompt of prompts) {
+    for (const model of models) {
+      // Haiku rejects `effort`; run it unset rather than not at all.
+      cells.push({ prompt, model, effort: /haiku/.test(model) ? null : effort });
+    }
+  }
+
+  state.compare = [];
+  renderCompare();
+  setBusy(true);
+  $('bake-off').disabled = true;
+  let spend = 0;
+
+  try {
+    for (const [i, cell] of cells.entries()) {
+      runStatus(`${i + 1}/${cells.length}  ${cell.model.replace('claude-', '')}  ${cell.prompt.slice(0, 40)}…  $${spend.toFixed(3)}`);
+      const t0 = Date.now();
+      let cand;
+      try {
+        const res = await post('/api/generate', { prompt: cell.prompt, model: cell.model, effort: cell.effort });
+        spend += res.usage.costUsd;
+        cand = {
+          id: null, name: res.cue.name, description: res.cue.description, prompt: cell.prompt,
+          code: res.cue.code, params: res.cue.params, values: res.cue.values, gain: 1, key: '',
+          _model: cell.model.replace('claude-', '') + (cell.effort ? ` @${cell.effort}` : ''),
+          _usage: res.usage, _warnings: res.warnings, _ms: Date.now() - t0,
+        };
+        try {
+          await remeasure(cand);
+          cand._verdict = verdictOf({ ok: true, measure: cand.measure, warnings: res.warnings });
+        } catch {
+          cand._verdict = 'threw';
+        }
+      } catch (err) {
+        cand = {
+          id: null, name: 'failed', prompt: cell.prompt, code: '', params: [], values: {}, gain: 1,
+          _model: cell.model.replace('claude-', ''), _verdict: 'api-error', _error: err.message,
+        };
+      }
+      state.compare.push(cand);
+      renderCompare();       // results land as they arrive, not all at the end
+    }
+    runStatus(`${cells.length} candidates · $${spend.toFixed(4)}`);
+  } finally {
+    setBusy(false);
+    $('bake-off').disabled = false;
+  }
+}
+
 /* Same rule the CLI applies, so the pad and the table can't disagree. */
 function verdictOf(r) {
   if (!r.ok) return 'api-error';
@@ -537,7 +601,7 @@ function renderCompare() {
         b.append(el('span', '', `pk ${fmtDb(m.peakDb)}`), el('span', hotness(m.rmsDb), `rms ${fmtDb(m.rmsDb)}`));
         pad.append(nums, b);
       } else {
-        nums.append(el('span', 'clip', c._verdict));
+        nums.append(el('span', 'clip', c._error || c._verdict));
         pad.append(nums);
       }
       if (c._usage) pad.append(el('div', 'nums', `$${c._usage.costUsd.toFixed(4)}`));
@@ -550,6 +614,10 @@ function renderCompare() {
       });
       cells.append(pad);
 
+      const wrap = el('div');
+      wrap.append(pad);
+      if (!c.code) { cells.append(wrap); continue; }   // nothing to keep
+
       const keep = el('button', 'keep', 'keep');
       keep.title = 'Save this candidate into the library';
       keep.addEventListener('click', guard(async (e) => {
@@ -559,8 +627,7 @@ function renderCompare() {
         await loadLibrary();
         runStatus(`kept ${c.name}`);
       }));
-      const wrap = el('div');
-      wrap.append(pad, keep);
+      wrap.append(keep);
       cells.append(wrap);
     }
     row.append(cells);
@@ -684,6 +751,7 @@ $('target-rms').addEventListener('change', (e) => {
   if (state.sel) renderMeasure(state.sel);
 });
 
+$('bake-off').addEventListener('click', guard(runBakeoff));
 $('load-run').addEventListener('click', guard(() => loadRun($('run-pick').value)));
 $('clear-run').addEventListener('click', () => { state.compare = []; renderCompare(); runStatus(''); });
 
@@ -771,6 +839,8 @@ const ready = (async () => {
       : `${health.model} — no ANTHROPIC_API_KEY, generation disabled`;
     $('generate').disabled = !health.hasKey;
     $('refine').disabled = !health.hasKey;
+    $('bake-off').disabled = !health.hasKey;
+    if (!health.hasKey) runStatus('generation is off — a saved run can still be loaded');
   } catch { /* health is optional */ }
   $('master-out').textContent = `${(20 * Math.log10(Number($('master').value))).toFixed(1)} dB`;
   state.target = Number($('target-rms').value);
