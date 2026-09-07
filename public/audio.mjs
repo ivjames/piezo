@@ -36,7 +36,42 @@ export function compile(code) {
     'ctx', 't0', 'out', 'p', ...SHADOWED,
     '"use strict";\n' + code + '\n',
   );
-  return (ctx, t0, out, p) => fn(ctx, t0, out, p);
+  return (ctx, t0, out, p) => {
+    try { return fn(ctx, t0, out, p); }
+    catch (err) { throw explain(err, t0); }
+  };
+}
+
+/* What a browser says when a cue schedules a bad time, and what it means.
+   Chromium and WebKit word the same rejection differently -- Chromium's
+   "Time must be a finite non-negative number: -0.05" against Safari's
+   "endTime must be a positive value" -- and neither says the thing worth
+   knowing, which is that this cue is fine live and broken under measurement.
+   A render always starts at t0 = 0, so an event scheduled before t0 is a
+   negative absolute time and throws; live, t0 is however many seconds the
+   context has been open, which is more than enough to swallow the offset. */
+const BAD_TIME = [
+  [/must be a positive value|non-negative number|time provided \(-/i,
+    'the cue scheduled an event before t0. Offline rendering starts at t0 = 0, '
+    + 'so anything earlier is a negative time -- live playback hides this, '
+    + 'because there t0 is seconds into the context.'],
+  // Not necessarily a time: `setValueAtTime(NaN, t)` and `setValueAtTime(1,
+  // NaN)` differ only by the words "float" and "double", and setting .value
+  // to NaN reads the same again. So say what is certain -- a number went in
+  // that is not a number -- and leave which argument to the message itself.
+  [/non-finite|not a finite/i,
+    'the cue passed a NaN or an Infinity to the Web Audio API -- usually a '
+    + 'divide by zero, or a parameter it reads but never declared.'],
+];
+
+function explain(err, t0) {
+  const msg = err?.message;
+  if (typeof msg !== 'string') return err;
+  const hit = BAD_TIME.find(([re]) => re.test(msg));
+  if (!hit) return err;
+  const out = new Error(`${msg} — ${hit[1]} (t0 = ${Number(t0).toFixed(3)}s)`);
+  out.cause = err;
+  return out;
 }
 
 /** Compile with a per-cue cache keyed on the code text. */

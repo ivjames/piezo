@@ -75,12 +75,28 @@ async function remeasure(cue) {
     const { buffer, measure } = await A.renderAndMeasure(cue, { params: cue.values, gain: cue.gain });
     cue.measure = measure;
     cue._buffer = buffer;
+    cue._error = null;
+    reverdict(cue);
     return measure;
   } catch (err) {
     cue.measure = null;
     cue._error = err.message;
+    reverdict(cue);
     throw err;
   }
+}
+
+/* A bake-off verdict is a judgement about a measurement, so it has to be
+   re-made whenever the measurement is. Otherwise a candidate that passed at
+   its defaults and throws two slider-drags later keeps saying PASS with the
+   exception printed underneath it.
+
+   Except api-error, which is a judgement about a call that never returned a
+   cue. Rendering its empty body succeeds -- ten seconds of silence -- and
+   would quietly downgrade "the model never answered" to "silent". */
+function reverdict(cue) {
+  if (!cue._verdict || cue._verdict === 'api-error') return;
+  cue._verdict = verdictOf({ ok: true, measure: cue.measure, warnings: cue._warnings });
 }
 
 /* --- board --------------------------------------------------------------- */
@@ -110,7 +126,9 @@ function renderPads() {
       pad.append(top, bottom);
     } else {
       const nums = el('div', 'nums');
-      nums.append(el('span', cue._error ? 'clip' : '', cue._error ? 'error' : 'measuring…'));
+      const why = el('span', cue._error ? 'clip' : '', cue._error ? 'error' : 'measuring…');
+      if (cue._error) why.title = cue._error;    // the inspector prints it in full
+      nums.append(why);
       pad.append(nums);
     }
 
@@ -214,6 +232,7 @@ async function refreshSelected() {
   renderMeasure(cue);
   draw(cue);
   renderPads();
+  if (state.compare.length) renderCompare();   // the pad's verdict has moved
 }
 
 function renderMeasure(cue) {
@@ -481,6 +500,7 @@ async function loadRun(name) {
     measure: r.measure && !r.measure.error ? r.measure : null,
     _model: r.model.replace('claude-', '') + (r.effort ? ` @${r.effort}` : ''),
     _verdict: verdictOf(r),
+    _warnings: r.warnings,      // so a re-measure can re-reach the same verdict
     _usage: r.usage,
     _i: i,
   }));
@@ -609,7 +629,11 @@ function renderCompare() {
       pad.addEventListener('click', () => {
         select(c);
         renderCompare();
-        if (c.code) fire(c);
+        // A candidate with no code is a call that failed; there is nothing to
+        // play and nothing to measure, and rendering its empty body would
+        // overwrite the error with ten seconds of silence.
+        if (!c.code) return;
+        fire(c);
         refreshSelected().catch(() => {});
       });
       cells.append(pad);
@@ -856,6 +880,7 @@ window.__piezo = {
   state,
   audio,
   fire: (id) => { const c = state.cues.find((x) => x.id === id); if (c) fire(c); return !!c; },
+  remeasure,
   measureAll: async () => {
     const out = {};
     for (const cue of state.cues) {
