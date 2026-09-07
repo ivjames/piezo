@@ -38,10 +38,26 @@
       <span class="hint">one row per prompt, one pad per model — fire them back to back</span>
     </div>
     <div class="row">
-      <select id="run-pick"><option value="">no runs yet</option></select>
-      <button id="load-run">load</button>
+      <span class="hint">models</span>
+      <label class="knob"><input type="checkbox" class="bo-model" value="claude-opus-5" checked> opus 5</label>
+      <label class="knob"><input type="checkbox" class="bo-model" value="claude-sonnet-5" checked> sonnet 5</label>
+      <label class="knob"><input type="checkbox" class="bo-model" value="claude-haiku-4-5" checked> haiku 4.5</label>
+      <label class="knob">effort
+        <select id="bo-effort">
+          <option value="">default</option>
+          <option value="low">low</option>
+          <option value="medium">medium</option>
+          <option value="high">high</option>
+        </select>
+      </label>
+      <button id="bake-off" class="primary">bake off</button>
       <button id="clear-run">clear</button>
       <span class="hint" id="run-status"></span>
+    </div>
+    <div class="row">
+      <span class="hint">or load a saved run from <code>npm run bakeoff</code>:</span>
+      <select id="run-pick"><option value="">no runs yet</option></select>
+      <button id="load-run">load</button>
     </div>
     <div id="compare" class="compare"></div>
 
