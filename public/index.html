@@ -34,6 +34,18 @@
     <div id="pads" class="pads"></div>
 
     <div class="bar">
+      <h2>bake-off</h2>
+      <span class="hint">one row per prompt, one pad per model — fire them back to back</span>
+    </div>
+    <div class="row">
+      <select id="run-pick"><option value="">no runs yet</option></select>
+      <button id="load-run">load</button>
+      <button id="clear-run">clear</button>
+      <span class="hint" id="run-status"></span>
+    </div>
+    <div id="compare" class="compare"></div>
+
+    <div class="bar">
       <h2>generate</h2>
       <span class="hint" id="model-hint"></span>
     </div>

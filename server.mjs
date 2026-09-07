@@ -22,6 +22,7 @@ const PORT = Number(process.env.PORT || 8971);
 const HOST = process.env.HOST || '127.0.0.1';
 const PUBLIC = path.join(ROOT, 'public');
 const EXPORT_DIR = path.join(ROOT, 'export');
+const BAKEOFF_DIR = path.join(ROOT, 'bakeoff');
 const library = new Library(path.join(ROOT, 'library'));
 
 const MIME = {
@@ -86,6 +87,16 @@ async function handle(req, res) {
       return send(res, 200, { written });
     }
 
+    // Bake-off runs are local artefacts (gitignored). Listing and reading them
+    // is what turns a table of numbers into something you can audition.
+    case 'GET /api/bakeoff': {
+      let names = [];
+      try {
+        names = (await fs.readdir(BAKEOFF_DIR)).filter((f) => f.endsWith('.json')).sort().reverse();
+      } catch { /* no runs yet */ }
+      return send(res, 200, { runs: names });
+    }
+
     case 'POST /api/export': {
       const cues = await library.list();
       const code = buildModule(cues);
@@ -93,6 +104,14 @@ async function handle(req, res) {
       await fs.writeFile(path.join(EXPORT_DIR, 'cues.js'), code);
       return send(res, 200, { path: 'export/cues.js', bytes: Buffer.byteLength(code), cues: cues.length, code });
     }
+  }
+
+  if (req.method === 'GET' && url.pathname.startsWith('/api/bakeoff/')) {
+    const name = decodeURIComponent(url.pathname.slice('/api/bakeoff/'.length));
+    if (!/^[A-Za-z0-9._-]+\.json$/.test(name)) throw new HttpError(400, `bad run name: ${name}`);
+    try {
+      return send(res, 200, JSON.parse(await fs.readFile(path.join(BAKEOFF_DIR, name), 'utf8')));
+    } catch { throw new HttpError(404, `no such run: ${name}`); }
   }
 
   if (req.method === 'DELETE' && url.pathname.startsWith('/api/cue/')) {
