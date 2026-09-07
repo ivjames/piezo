@@ -113,6 +113,46 @@ try {
     if (typeof mod.CUES[cue.id]?.render !== 'function') fail(`export/cues.js: ${cue.id} has no render()`);
   }
 
+  // 5. A cue that schedules before t0 renders live and throws under
+  //    measurement, so the board has to say which happened and keep the
+  //    bake-off verdict on the same story as the measurement under it.
+  const early = await page.evaluate(async () => {
+    const cue = {
+      name: 'Early Ramp', code: `
+        const o = ctx.createOscillator();
+        const g = ctx.createGain();
+        g.gain.setValueAtTime(0.0001, t0);
+        g.gain.linearRampToValueAtTime(0.4, t0 - 0.05 * p.early);
+        g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.2);
+        o.connect(g); g.connect(out); o.start(t0); o.stop(t0 + 0.2);
+        return t0 + 0.2;`,
+      params: [{ key: 'early', label: 'Early', min: 0, max: 1, step: 1, default: 0, unit: '' }],
+      values: { early: 0 }, gain: 1, _verdict: 'pass', _warnings: [],
+    };
+    const r = {};
+    await window.__piezo.remeasure(cue);
+    r.goodVerdict = cue._verdict;
+
+    cue.values = { early: 1 };                       // now it wants t0 - 0.05
+    try { await window.__piezo.remeasure(cue); r.threw = false; }
+    catch (err) { r.threw = true; r.message = err.message; }
+    r.badVerdict = cue._verdict;
+    r.badMeasure = cue.measure;
+
+    cue.values = { early: 0 };                       // and back again
+    await window.__piezo.remeasure(cue);
+    r.recoveredVerdict = cue._verdict;
+    return r;
+  });
+  if (early.goodVerdict !== 'pass') fail(`negative-time check: expected pass, got ${early.goodVerdict}`);
+  if (!early.threw) fail('negative-time check: scheduling before t0 rendered without throwing');
+  if (!/scheduled an event before t0/.test(early.message || '')) {
+    fail(`negative-time check: unexplained message ${JSON.stringify(early.message)}`);
+  }
+  if (early.badVerdict !== 'threw') fail(`negative-time check: verdict stayed ${early.badVerdict} after a failed render`);
+  if (early.badMeasure !== null) fail('negative-time check: a failed render left a measurement behind');
+  if (early.recoveredVerdict !== 'pass') fail(`negative-time check: verdict stuck at ${early.recoveredVerdict}`);
+
   if (pageErrors.length) for (const e of pageErrors) fail(e);
 
   if (WRITE) {

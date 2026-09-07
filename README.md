@@ -124,7 +124,11 @@ subclass, and then:
    without throwing;
 4. regenerates `export/cues.js` and `import()`s it in Node, asserting it is
    valid JavaScript with a `render()` for every cue;
-5. fails on any page error, console error or failed request.
+5. renders a cue that schedules an event before `t0` — legal-looking live,
+   fatal offline — and asserts the board explains the browser's message and
+   drops the bake-off verdict to `threw` rather than leaving a stale `pass`
+   over the top of the exception;
+6. fails on any page error, console error or failed request.
 
 It prints the whole library as a table, which is the fastest way to see the
 level spread across the board.

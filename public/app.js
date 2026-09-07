@@ -75,12 +75,24 @@ async function remeasure(cue) {
     const { buffer, measure } = await A.renderAndMeasure(cue, { params: cue.values, gain: cue.gain });
     cue.measure = measure;
     cue._buffer = buffer;
+    cue._error = null;
+    reverdict(cue);
     return measure;
   } catch (err) {
     cue.measure = null;
     cue._error = err.message;
+    reverdict(cue);
     throw err;
   }
+}
+
+/* A bake-off verdict is a judgement about a measurement, so it has to be
+   re-made whenever the measurement is. Otherwise a candidate that passed at
+   its defaults and throws two slider-drags later keeps saying PASS with the
+   exception printed underneath it. */
+function reverdict(cue) {
+  if (!cue._verdict) return;
+  cue._verdict = verdictOf({ ok: true, measure: cue.measure, warnings: cue._warnings });
 }
 
 /* --- board --------------------------------------------------------------- */
@@ -110,7 +122,9 @@ function renderPads() {
       pad.append(top, bottom);
     } else {
       const nums = el('div', 'nums');
-      nums.append(el('span', cue._error ? 'clip' : '', cue._error ? 'error' : 'measuring…'));
+      const why = el('span', cue._error ? 'clip' : '', cue._error ? 'error' : 'measuring…');
+      if (cue._error) why.title = cue._error;    // the inspector prints it in full
+      nums.append(why);
       pad.append(nums);
     }
 
@@ -214,6 +228,7 @@ async function refreshSelected() {
   renderMeasure(cue);
   draw(cue);
   renderPads();
+  if (state.compare.length) renderCompare();   // the pad's verdict has moved
 }
 
 function renderMeasure(cue) {
@@ -481,6 +496,7 @@ async function loadRun(name) {
     measure: r.measure && !r.measure.error ? r.measure : null,
     _model: r.model.replace('claude-', '') + (r.effort ? ` @${r.effort}` : ''),
     _verdict: verdictOf(r),
+    _warnings: r.warnings,      // so a re-measure can re-reach the same verdict
     _usage: r.usage,
     _i: i,
   }));
@@ -856,6 +872,7 @@ window.__piezo = {
   state,
   audio,
   fire: (id) => { const c = state.cues.find((x) => x.id === id); if (c) fire(c); return !!c; },
+  remeasure,
   measureAll: async () => {
     const out = {};
     for (const cue of state.cues) {

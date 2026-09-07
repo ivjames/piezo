@@ -22,6 +22,11 @@ exported module — agrees on one thing: **a cue is the body of a function.**
 2. **Schedule, don't wait.** Never read `ctx.currentTime`, never use timers.
    Times come from `t0` and `p` only. The same call rendered offline at 100×
    real time must produce the same samples as live playback.
+   **Nothing before `t0`.** Every time passed to a node or an `AudioParam`
+   must be `t0` or later, at every value the parameters can take. Measurement
+   renders with `t0 = 0`, so `t0 - 0.01` is a negative absolute time and the
+   browser throws; live playback, where `t0` is seconds into the context,
+   would have hidden it.
 3. **Deterministic apart from explicit noise.** `Math.random()` is allowed *only*
    for filling noise buffers. Pitches, times, levels and envelopes must be a
    pure function of `p`.
