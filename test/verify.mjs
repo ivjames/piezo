@@ -93,9 +93,11 @@ try {
     else if (m.duration - m.declaredDuration > LIMITS.declaredSlack) {
       warn(`${cue.id}: sounds ${(m.duration - m.declaredDuration).toFixed(2)}s past its declared end`);
     }
-    rows.push([cue.id, cue.key || '-', `${m.duration.toFixed(3)}s`,
-      `${m.peakDb.toFixed(1)}`, `${m.rmsDb.toFixed(1)}`, `${Math.round(m.centroid)}Hz`,
-      m.bands.filter((b) => b.frac > 0.15).map((b) => b.name).join('+') || '—']);
+    // A silent cue serialises its dB as null; the table still has to print.
+    const n = (v, digits, suffix = '') => (Number.isFinite(v) ? v.toFixed(digits) + suffix : '-inf');
+    rows.push([cue.id, cue.key || '-', n(m.duration, 3, 's'), n(m.peakDb, 1), n(m.rmsDb, 1),
+      Number.isFinite(m.centroid) ? `${Math.round(m.centroid)}Hz` : '-',
+      (m.bands || []).filter((b) => b.frac > 0.15).map((b) => b.name).join('+') || '-']);
   }
 
   // 3. The live path: firing a pad must build a graph without throwing.
