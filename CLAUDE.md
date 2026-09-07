@@ -18,30 +18,38 @@ process registered as `piezo`. `DEPLOY.md` is the runbook; `bin/piezo` is the
 operate CLI. No build step — `deploy` skips it, because there is no `build`
 script to run.
 
-## This site must not be open to the public
+## The droplet runs it keyless — generating is a local step
 
-Two reasons, both structural rather than cautious:
+`piezo.lab980.com` has **no `ANTHROPIC_API_KEY`**, by design and not by
+oversight. The split is:
 
-- The server holds an `ANTHROPIC_API_KEY` and `POST /api/generate` spends it.
-  An unauthenticated vhost is an open funnel into your Anthropic bill.
-- The board's whole job is to execute model-written JavaScript in the visitor's
-  browser. That is a fine trade for the person driving the tool and a bad one
-  for a stranger who arrived from a search result.
+- **Authoring is local.** You generate and refine cues on your own machine,
+  where the key already lives, and land the ones worth keeping in `library/`
+  through a PR. The library is the artefact.
+- **The deployed board is the audition surface** for what's committed: the
+  pads, the offline measurements, the parameter sliders, level matching, WAV
+  and `export/cues.js`. All of that runs on the cue programs in the repo and
+  reaches nothing but this box.
 
-So the vhost carries HTTP basic auth over the whole site, the way `photos`
-does. `DEPLOY.md` has the exact steps; a deploy that leaves `piezo.lab980.com`
-answering 200 without a credential is a broken deploy, not a working one.
-`server.mjs` also binds `127.0.0.1` and refuses cross-origin API calls, but
-neither of those is the boundary — nginx is.
+So there is nothing on the droplet to protect: no key to spend, and the only
+code the page runs is code that is already in git and readable in the repo.
+The vhost is a plain public vhost. `/api/generate` answers `503` there, which
+is the correct answer, and the board disables the generate and refine buttons
+when `/api/health` reports no key.
+
+Don't put a key in `/var/www/piezo/.env` to "enable generation in production".
+That single change is what would make an open vhost a way for strangers to
+spend your Anthropic budget, and it buys nothing the local tool doesn't
+already do better.
 
 ## Secrets
 
-`ivjames/piezo` is **public**. The key lives in `/var/www/piezo/.env` on the
-droplet, which is gitignored and edited on the box by hand; only
-`.env.example`, with a placeholder, is in git. No key in any file, log line,
-test fixture, README example or commit message. Check `git status` before every
-commit. If a key ever lands in a commit, stop and say so — do not try to
-rewrite published history.
+`ivjames/piezo` is **public**. The key lives in `.env` on your own machine and
+nowhere else — not on the droplet, not in this repo. Only `.env.example`, with
+a placeholder, is in git. No key in any file, log line, test fixture, README
+example or commit message. Check `git status` before every commit. If a key
+ever lands in a commit, stop and say so — do not try to rewrite published
+history.
 
 ## Working on it locally
 
