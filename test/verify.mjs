@@ -11,12 +11,11 @@
  *   node test/verify.mjs           check
  *   node test/verify.mjs --write   check, then write measurements back to library/
  */
-import { spawn } from 'node:child_process';
 import path from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { pathToFileURL } from 'node:url';
 import { chromium } from 'playwright';
 
-const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
+import { ROOT, startServer, OFFLINE_CLOCK } from './harness.mjs';
 const WRITE = process.argv.includes('--write');
 
 const LIMITS = {
@@ -46,13 +45,7 @@ try {
   // Headless Chromium has no audio device; give the page a deterministic,
   // offline clock instead. Everything the board does to a live context --
   // create nodes, schedule, resume -- has to work against this.
-  await page.addInitScript(() => {
-    class OfflineStandIn extends OfflineAudioContext {
-      constructor() { super(1, 44100 * 10, 44100); }
-    }
-    Object.defineProperty(window, 'AudioContext', { value: OfflineStandIn, configurable: true });
-    Object.defineProperty(window, 'webkitAudioContext', { value: OfflineStandIn, configurable: true });
-  });
+  await page.addInitScript(OFFLINE_CLOCK);
 
   await page.goto(server.url, { waitUntil: 'domcontentloaded' });
   await page.evaluate(() => window.__piezo.ready);
@@ -161,23 +154,4 @@ function print(rows, exported) {
   for (const r of rows) console.log(line(r));
   if (exported) console.log(`\nexport/cues.js: ${exported.cues} cues, ${exported.bytes} bytes`);
   for (const w of warnings) console.log(`  ! ${w}`);
-}
-
-async function startServer() {
-  const child = spawn(process.execPath, ['server.mjs'], {
-    cwd: ROOT,
-    env: { ...process.env, PORT: '0', HOST: '127.0.0.1', ANTHROPIC_API_KEY: '' },
-    stdio: ['ignore', 'pipe', 'inherit'],
-  });
-  const url = await new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error('server did not start within 15s')), 15000);
-    let buf = '';
-    child.stdout.on('data', (d) => {
-      buf += d.toString();
-      const m = buf.match(/http:\/\/[\d.]+:\d+/);
-      if (m) { clearTimeout(timer); resolve(m[0]); }
-    });
-    child.on('exit', (code) => { clearTimeout(timer); reject(new Error(`server exited with ${code}`)); });
-  });
-  return { url, stop: () => child.kill() };
 }

@@ -8,6 +8,7 @@
     "start": "node server.mjs",
     "test": "node test/verify.mjs",
     "measure": "node test/verify.mjs --write",
+    "bakeoff": "node tools/bakeoff.mjs",
     "seed": "node tools/seed.mjs"
   },
   "dependencies": {
