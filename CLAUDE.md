@@ -46,6 +46,7 @@ npm start                 # http://127.0.0.1:8971
 npm test                  # headless Chromium; measures every cue
 npm run measure           # same, and writes measurements back into library/
 npm run seed              # rewrite the seeded PC-speaker cues
+npm run bakeoff -- --dry-run   # compare models head to head (costs money without --dry-run)
 ```
 
 `npm test` must pass before you push. Nobody working on this repo can hear the

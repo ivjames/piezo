@@ -129,6 +129,35 @@ subclass, and then:
 It prints the whole library as a table, which is the fastest way to see the
 level spread across the board.
 
+## Choosing a model
+
+`SOUNDBOARD_MODEL` picks the model (default `claude-opus-5`). Which one is
+worth paying for is a question this tool can answer with measurements instead
+of opinion, because a cue objectively renders or throws, is audible or silent,
+clips or doesn't:
+
+```
+npm run bakeoff -- --dry-run                  # plan and cost estimate, no calls
+npm run bakeoff                               # opus 5 / sonnet 5 / haiku 4.5
+npm run bakeoff -- --models claude-opus-5 --effort low,high
+npm run bakeoff -- --from bakeoff/<run>.json  # re-measure a past run, free
+```
+
+It generates the same prompt set on each model, renders every candidate
+through the same `OfflineAudioContext` engine the board uses, and prints cost
+against outcome — plus a per-model line of clean/usable cues and dollars per
+usable cue. Runs are saved as JSON so a comparison can be re-measured later
+without paying for it twice.
+
+Two things it will not tell you: whether a "thud" *sounds* like a thud (that's
+the centroid column and your ears), and anything about Haiku at a given effort
+level — Haiku 4.5 rejects `effort`, so it runs unset and the grid skips those
+cells rather than reporting a number it didn't measure.
+
+Prices move. `lib/pricing.mjs` carries the per-model rates, including the
+cache-read discount, which matters here: the ~1.85k-token system prompt is
+cached, so most input on a warm run bills at a tenth.
+
 ## Export
 
 `export/cues.js` is a self-contained ES module with no dependency on this tool
