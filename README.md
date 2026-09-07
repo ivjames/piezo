@@ -29,19 +29,12 @@ Without a key everything except generation works: the seeded library plays,
 measures, normalises and exports. That is not just a degraded mode — it is
 exactly how the deployed copy runs.
 
-## Local tool, hosted board
+## Hosted
 
-The two halves run in different places, and only one of them needs a key:
-
-- **Authoring is local.** You generate and refine cues here, on your own
-  machine, and land the keepers in `library/` through a PR.
-- **The board is hosted**, at `piezo.lab980.com`, with **no key on the box**.
-  It serves what's committed: pads, measurements, sliders, level matching, WAV
-  and `export/cues.js`. `/api/generate` answers `503` there and the generate
-  buttons are disabled, which is the intended state rather than a fault.
-
-So the hosted copy has nothing to spend and runs no code that isn't in this
-repo. `DEPLOY.md` is the runbook.
+It also runs at `piezo.lab980.com`, on the lab980 droplet, with its own key in
+`/var/www/piezo/.env` — so the hosted board generates too. `DEPLOY.md` is the
+runbook. Cues saved there live in that checkout's `library/`; cues you want in
+the repo still arrive by PR.
 
 ## The board
 

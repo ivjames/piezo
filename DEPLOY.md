@@ -57,28 +57,23 @@ dump — nothing replays it at boot without the hook.
 |---|---|
 | `PORT` | `8073` — must match the vhost's `proxy_pass`. `provision-site` seeds this; leave it alone. |
 | `HOST` | `127.0.0.1`. The default already, and it must stay loopback: nginx is the only thing that should reach the app. |
-| `ANTHROPIC_API_KEY` | **not set here.** Generating cues is a local step — see below. |
-| `SOUNDBOARD_MODEL` | optional; defaults to `claude-opus-5`. Nothing on this box calls the API, so it has no effect here. |
+| `ANTHROPIC_API_KEY` | the key `POST /api/generate` spends. This file is the only copy on the box. |
+| `SOUNDBOARD_MODEL` | optional; defaults to `claude-opus-5`. Only set it to pin a different model deliberately. |
 
-### No key goes on the droplet
+### The key is read once, at startup
 
-The deployed board serves what is committed: the pads, the offline
-measurements, the sliders, level matching, WAV download and
-`export/cues.js`. Every one of those runs on the cue programs already in
-`library/`, and none of them calls the Anthropic API.
+`server.mjs` calls `process.loadEnvFile()` when it boots and never again. So a
+key written into `.env` while the app is already running does nothing until the
+process restarts:
 
-Generating and refining cues happens on your own machine, where the key lives,
-and the cues worth keeping arrive here the way every other change does — a PR
-into `main`, then `piezo deploy`. So `/var/www/piezo/.env` holds `PORT` and
-nothing else, `/api/generate` answers `503`, and the board disables its
-generate and refine buttons because `/api/health` reports no key.
+```bash
+piezo restart
+curl -sS https://piezo.lab980.com/api/health     # want hasKey:true
+```
 
-That is what makes a plain public vhost fine here: there is no key to spend,
-and the only code the page executes is code that is in the repo and readable
-before it runs. Adding a key to `.env` on the box is the single change that
-would turn an open vhost into a way for strangers to spend your Anthropic
-budget — and it would buy nothing, because the local tool already generates
-better than a shared one would.
+`/api/health` reporting `hasKey:false` right after you edited `.env` means
+exactly this and nothing else. The board reads the same endpoint and disables
+its generate and refine buttons whenever it says `false`.
 
 ### Playwright at deploy time
 
