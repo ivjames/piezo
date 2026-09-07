@@ -18,38 +18,24 @@ process registered as `piezo`. `DEPLOY.md` is the runbook; `bin/piezo` is the
 operate CLI. No build step — `deploy` skips it, because there is no `build`
 script to run.
 
-## The droplet runs it keyless — generating is a local step
+## Generating on the droplet
 
-`piezo.lab980.com` has **no `ANTHROPIC_API_KEY`**, by design and not by
-oversight. The split is:
+`/var/www/piezo/.env` holds the `ANTHROPIC_API_KEY`, so the deployed board
+generates and refines like the local one. `/api/health` reports whether a key
+is loaded, and the page disables its generate and refine buttons when it isn't.
 
-- **Authoring is local.** You generate and refine cues on your own machine,
-  where the key already lives, and land the ones worth keeping in `library/`
-  through a PR. The library is the artefact.
-- **The deployed board is the audition surface** for what's committed: the
-  pads, the offline measurements, the parameter sliders, level matching, WAV
-  and `export/cues.js`. All of that runs on the cue programs in the repo and
-  reaches nothing but this box.
-
-So there is nothing on the droplet to protect: no key to spend, and the only
-code the page runs is code that is already in git and readable in the repo.
-The vhost is a plain public vhost. `/api/generate` answers `503` there, which
-is the correct answer, and the board disables the generate and refine buttons
-when `/api/health` reports no key.
-
-Don't put a key in `/var/www/piezo/.env` to "enable generation in production".
-That single change is what would make an open vhost a way for strangers to
-spend your Anthropic budget, and it buys nothing the local tool doesn't
-already do better.
+`server.mjs` reads `.env` once, at startup. A key added to that file after the
+process is running is invisible to it until `piezo restart` — which is what
+"I added the key and it still says there isn't one" means every time.
 
 ## Secrets
 
-`ivjames/piezo` is **public**. The key lives in `.env` on your own machine and
-nowhere else — not on the droplet, not in this repo. Only `.env.example`, with
-a placeholder, is in git. No key in any file, log line, test fixture, README
-example or commit message. Check `git status` before every commit. If a key
-ever lands in a commit, stop and say so — do not try to rewrite published
-history.
+`ivjames/piezo` is **public**. The key lives in `.env` — on your machine
+locally, and in `/var/www/piezo/.env` on the droplet, which is gitignored and
+edited on the box by hand. Only `.env.example`, with a placeholder, is in git.
+No key in any file, log line, test fixture, README example or commit message.
+Check `git status` before every commit. If a key ever lands in a commit, stop
+and say so — do not try to rewrite published history.
 
 ## Working on it locally
 
