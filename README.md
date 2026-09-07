@@ -1,7 +1,9 @@
 # piezo
 
 A local board for designing game sound cues by prompt, auditioning them,
-measuring them, and exporting them as a module a game can drop in.
+measuring them, and taking them away — as WAVs, or as a module a game can drop
+in. The library is a library, not one game's sound set: cues are grouped into
+named **playlists**, and any playlist downloads on its own.
 
 You type a description — *"heavy oak door slamming shut, heard from down a
 corridor"*, *"1-bit PC-speaker alert beep"*, *"coins landing on stone"* — and
@@ -46,7 +48,43 @@ the repo still arrive by PR.
 | **tweak** | every cue declares 2–5 parameters; they become sliders and re-render offline as you move them. No regeneration needed. |
 | **read** | the code is on the page, editable, with *apply & re-measure*. |
 | **level-match** | *normalise* trims one cue to the target RMS; *match library* does the whole board. Trim is a separate `gain` field, so matching never rewrites the model's code. |
-| **export** | *export* writes `export/cues.js` and downloads it; *wav* renders the selected cue to a 16-bit WAV via `OfflineAudioContext`. |
+| **group** | playlist chips above the pads filter the board; the search box narrows further. A cue's playlists are toggled in the inspector, one click each. |
+| **download** | *download wavs* zips the active set as 16-bit WAVs with a manifest; *download module* writes that set as a drop-in ES module. |
+| **export** | *export* writes the whole-library `export/cues.js` and downloads it; *wav* renders the selected cue to a single WAV. |
+
+## Playlists
+
+A playlist is a named set of cue ids in `playlists/<id>.json`:
+
+```json
+{
+  "id": "pc-speaker",
+  "name": "PC speaker",
+  "description": "The 1-bit cues ported from ivjames/forest.",
+  "cues": ["pc-boot", "pc-key", "pc-move"]
+}
+```
+
+The cues do not know which sets they are in, which is the point: a cue belongs
+to as many playlists as you like, adding one writes a single file — the
+playlist's — and nothing about the cue record changes. Same properties as
+`library/`: one file per thing, git-diffable, no database.
+
+The chips filter one board rather than switching between boards, so the pads
+stay a single grid and a key binding fires its cue whether or not the current
+filter is showing it. Deleting a cue takes it out of every playlist holding
+it; deleting a playlist leaves its cues alone.
+
+Two things leave the board, and both take the active set — the playlist, or
+the whole library — rather than whatever the search box is narrowing to:
+
+- **download wavs** — a zip of 16-bit mono WAVs, one per cue, plus a
+  `manifest.txt` of names, durations and levels. Rendered through the same
+  `OfflineAudioContext` path the pads are measured with, so the file is what
+  the numbers describe. The zip is written by `public/zip.mjs`: stored
+  entries, no compression, no dependency.
+- **download module** — that set as `export/<id>.cues.js`, the same drop-in
+  module as `export/cues.js` with only those cues in it.
 
 ## The contract
 
@@ -124,11 +162,18 @@ subclass, and then:
    without throwing;
 4. regenerates `export/cues.js` and `import()`s it in Node, asserting it is
    valid JavaScript with a `render()` for every cue;
-5. renders a cue that schedules an event before `t0` — legal-looking live,
+5. round-trips a playlist through the API and asserts the per-playlist module
+   is exactly that set in that order, that a cue id with no cue behind it is
+   skipped rather than emitted, that the board's filter and search agree, and
+   that deleting a cue prunes it from the playlists holding it;
+6. zips two rendered cues, takes the archive back apart in Node — central
+   directory, local headers, a CRC recomputed bit by bit rather than with the
+   writer's own table — and asserts every entry survives byte for byte;
+7. renders a cue that schedules an event before `t0` — legal-looking live,
    fatal offline — and asserts the board explains the browser's message and
    drops the bake-off verdict to `threw` rather than leaving a stale `pass`
    over the top of the exception;
-6. fails on any page error, console error or failed request.
+8. fails on any page error, console error or failed request.
 
 It prints the whole library as a table, which is the fastest way to see the
 level spread across the board.
@@ -192,6 +237,19 @@ play(ctx, 'pc-hurt', { gain: 0.5, params: { from: 160 } });
 `play(ctx, name, opts)` takes `when`, `gain`, `params` and `destination`, and
 returns the time the cue finishes. Regenerate it; don't hand-edit it.
 
+It also carries the playlists, so a game that imports the whole library can
+still address one set:
+
+```js
+import { play, PLAYLISTS } from './cues.js';
+
+for (const name of PLAYLISTS['pc-speaker']) preload(name);
+```
+
+A playlist downloaded on its own arrives as `export/<id>.cues.js` with the
+same exports minus `PLAYLISTS` — it *is* the playlist — so a game that wants
+one set imports one file.
+
 ## The seeded library
 
 `library/` ships with eleven cues ported from the PC-speaker sound in
@@ -201,7 +259,12 @@ actually produce. They are a real, already-balanced corpus, so the board isn't
 empty on first run — and they show the tool doing its job immediately, since
 `pc-key` measures about 25 dB quieter than `pc-win`.
 
-`npm run seed` rewrites them; anything else in `library/` is left alone.
+They also arrive as a playlist, `PC speaker`, because that is what they are:
+eleven cues from one game on one piece of hardware. It is the first thing the
+board has more than one of.
+
+`npm run seed` rewrites them and that playlist; anything else in `library/`
+and `playlists/` is left alone.
 
 ## Layout
 
@@ -209,8 +272,10 @@ empty on first run — and they show the tool doing its job immediately, since
 server.mjs           node:http server + API. Holds the API key.
 lib/agent.mjs        the system prompt, the JSON schema, the Anthropic call
 lib/library.mjs      library/*.json on disk, one file per cue
-lib/exporter.mjs     emits export/cues.js
+lib/playlists.mjs    playlists/*.json, named sets of cue ids
+lib/exporter.mjs     emits export/cues.js and export/<playlist>.cues.js
 public/audio.mjs     compile, render, measure, WAV — shared with the tests
+public/zip.mjs       the zip writer behind "download wavs"
 public/app.js        the board
 docs/CONTRACT.md     the cue contract
 test/verify.mjs      the headless check
@@ -224,7 +289,10 @@ tools/seed.mjs       the forest PC-speaker corpus
 | `POST /api/generate` | `{prompt, refine?, previous?}` → `{cue, warnings, usage}` |
 | `POST /api/save` | upsert a cue → `{cue}` |
 | `GET /api/library` | `{cues}` |
-| `DELETE /api/cue/:id` | remove one |
+| `DELETE /api/cue/:id` | remove one, and prune it from every playlist |
+| `GET /api/playlists` | `{playlists}` |
+| `POST /api/playlist` | upsert a playlist → `{playlist}` |
+| `DELETE /api/playlist/:id` | remove one; its cues stay |
 | `POST /api/measure` | `{measurements:{id: measure}}`, merged in without touching `updatedAt` |
-| `POST /api/export` | writes `export/cues.js`, returns the source |
+| `POST /api/export` | `{playlist?}` → writes `export/cues.js`, or `export/<id>.cues.js` for one playlist, and returns the source |
 | `GET /api/health` | model, and whether a key is loaded |

@@ -1,0 +1,21 @@
+{
+  "id": "pc-speaker",
+  "name": "PC speaker",
+  "description": "The 1-bit cues ported from ivjames/forest: one square wave through a ~1 inch piezo disc.",
+  "cues": [
+    "pc-boot",
+    "pc-key",
+    "pc-move",
+    "pc-bump",
+    "pc-take",
+    "pc-hurt",
+    "pc-bear",
+    "pc-fire",
+    "pc-flare",
+    "pc-win",
+    "pc-lose"
+  ],
+  "order": 0,
+  "createdAt": "2026-09-07T23:53:18.084Z",
+  "updatedAt": "2026-09-07T23:53:18.084Z"
+}

@@ -10,6 +10,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { Library, HttpError } from './lib/library.mjs';
+import { Playlists, cuesOf } from './lib/playlists.mjs';
 import { generate, DEFAULT_MODEL } from './lib/agent.mjs';
 import { buildModule } from './lib/exporter.mjs';
 
@@ -24,6 +25,7 @@ const PUBLIC = path.join(ROOT, 'public');
 const EXPORT_DIR = path.join(ROOT, 'export');
 const BAKEOFF_DIR = path.join(ROOT, 'bakeoff');
 const library = new Library(path.join(ROOT, 'library'));
+const playlists = new Playlists(path.join(ROOT, 'playlists'));
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -64,6 +66,14 @@ async function handle(req, res) {
     case 'GET /api/library':
       return send(res, 200, { cues: await library.list() });
 
+    case 'GET /api/playlists':
+      return send(res, 200, { playlists: await playlists.list() });
+
+    case 'POST /api/playlist': {
+      const playlist = await playlists.save(await readJson(req));
+      return send(res, 200, { playlist });
+    }
+
     case 'POST /api/generate': {
       const body = await readJson(req);
       const result = await generate(body);
@@ -97,12 +107,34 @@ async function handle(req, res) {
       return send(res, 200, { runs: names });
     }
 
+    /* Export. With no playlist this is what it has always been -- every cue in
+       the library, as export/cues.js -- now carrying a PLAYLISTS map so a game
+       importing the whole thing can still address one set. Name a playlist and
+       you get that set alone, as export/<id>.cues.js: the same drop-in module,
+       scoped, for handing to a game that wants nothing else. */
     case 'POST /api/export': {
+      const { playlist: id } = await readJson(req);
       const cues = await library.list();
-      const code = buildModule(cues);
+      const all = await playlists.list();
+
+      let code, name, count;
+      if (id) {
+        const playlist = await playlists.get(id);
+        if (!playlist) throw new HttpError(404, `no such playlist: ${id}`);
+        const subset = cuesOf(playlist, cues);
+        if (!subset.length) throw new HttpError(400, `playlist "${playlist.name}" has no cues to export`);
+        code = buildModule(subset, { playlist });
+        name = `${playlist.id}.cues.js`;
+        count = subset.length;
+      } else {
+        code = buildModule(cues, { playlists: all });
+        name = 'cues.js';
+        count = cues.length;
+      }
+
       await fs.mkdir(EXPORT_DIR, { recursive: true });
-      await fs.writeFile(path.join(EXPORT_DIR, 'cues.js'), code);
-      return send(res, 200, { path: 'export/cues.js', bytes: Buffer.byteLength(code), cues: cues.length, code });
+      await fs.writeFile(path.join(EXPORT_DIR, name), code);
+      return send(res, 200, { path: `export/${name}`, bytes: Buffer.byteLength(code), cues: count, code });
     }
   }
 
@@ -117,11 +149,24 @@ async function handle(req, res) {
   if (req.method === 'DELETE' && url.pathname.startsWith('/api/cue/')) {
     const id = decodeURIComponent(url.pathname.slice('/api/cue/'.length));
     const gone = await library.remove(id);
-    return send(res, gone ? 200 : 404, gone ? { deleted: id } : { error: `no such cue: ${id}` });
+    // A playlist referencing a cue that no longer exists is the one dangling
+    // reference this design can produce, so deleting a cue clears it.
+    const pruned = gone ? await playlists.forget(id) : [];
+    return send(res, gone ? 200 : 404, gone ? { deleted: id, playlists: pruned } : { error: `no such cue: ${id}` });
+  }
+
+  if (req.method === 'DELETE' && url.pathname.startsWith('/api/playlist/')) {
+    const id = decodeURIComponent(url.pathname.slice('/api/playlist/'.length));
+    const gone = await playlists.remove(id);
+    return send(res, gone ? 200 : 404, gone ? { deleted: id } : { error: `no such playlist: ${id}` });
   }
 
   if (req.method === 'GET' || req.method === 'HEAD') {
-    if (url.pathname === '/export/cues.js') return sendFile(res, path.join(EXPORT_DIR, 'cues.js'));
+    if (url.pathname.startsWith('/export/')) {
+      const name = decodeURIComponent(url.pathname.slice('/export/'.length));
+      if (!/^[a-z0-9][a-z0-9.-]*\.js$/.test(name)) throw new HttpError(400, `bad export name: ${name}`);
+      return sendFile(res, path.join(EXPORT_DIR, name));
+    }
     return sendFile(res, resolveStatic(url.pathname));
   }
 

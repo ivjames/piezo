@@ -4,6 +4,7 @@
  * so the numbers on a pad are the same numbers `npm test` asserts on.
  */
 import * as A from '/audio.mjs';
+import { zip } from '/zip.mjs';
 
 const $ = (id) => document.getElementById(id);
 const el = (tag, cls, text) => {
@@ -23,6 +24,9 @@ const state = {
   dirty: false,
   target: -20,
   compare: [],       // bake-off candidates, grouped for A/B
+  playlists: [],     // named sets, as on disk; a cue can be in several
+  scope: '',         // active playlist id, or '' for the whole library
+  search: '',
 };
 
 /* --- live audio ---------------------------------------------------------- */
@@ -104,7 +108,14 @@ function reverdict(cue) {
 function renderPads() {
   const pads = $('pads');
   pads.textContent = '';
-  for (const cue of state.cues) {
+  const shown = visibleCues();
+  if (!shown.length) {
+    pads.append(el('span', 'hint', state.cues.length
+      ? 'nothing in this set matches — clear the search, or pick another playlist'
+      : 'no cues yet — describe one below and press generate'));
+    return;
+  }
+  for (const cue of shown) {
     const pad = el('button', 'pad');
     pad.dataset.id = cue.id;
     if (state.sel && state.sel.id === cue.id) pad.classList.add('sel');
@@ -159,6 +170,150 @@ function hotness(rmsDb) {
 const fmtDb = (v) => (Number.isFinite(v) ? `${v.toFixed(1)}` : '−∞');
 const fmtHz = (v) => (v >= 1000 ? `${(v / 1000).toFixed(1)}k` : `${Math.round(v)}`) + 'Hz';
 
+/* --- playlists ------------------------------------------------------------
+   A playlist is a named set of cue ids in playlists/<id>.json. The cues do not
+   know which sets they are in, which is the point: one cue belongs to as many
+   playlists as you like, and the library stops being one game's sound set.
+
+   The chips filter the one board rather than switching between boards, so the
+   pads stay a single grid and a key binding still fires its cue whether or not
+   the active filter is showing it. */
+
+function activePlaylist() {
+  return state.playlists.find((p) => p.id === state.scope) || null;
+}
+
+/** The cues of the active scope, in the playlist's own order when there is one. */
+function scopeCues() {
+  const pl = activePlaylist();
+  if (!pl) return state.cues;
+  const byId = new Map(state.cues.map((c) => [c.id, c]));
+  return pl.cues.map((id) => byId.get(id)).filter(Boolean);
+}
+
+/** Scope first, then the search box. */
+function visibleCues() {
+  const q = state.search.trim().toLowerCase();
+  const set = scopeCues();
+  if (!q) return set;
+  return set.filter((c) => `${c.name} ${c.description || ''} ${c.prompt || ''}`.toLowerCase().includes(q));
+}
+
+function renderChips() {
+  const box = $('chips');
+  box.textContent = '';
+  const chips = [{ id: '', name: 'all', n: state.cues.length }]
+    .concat(state.playlists.map((p) => ({ id: p.id, name: p.name, n: p.cues.length })));
+  for (const c of chips) {
+    const b = el('button', 'chip' + (c.id === state.scope ? ' on' : ''));
+    b.dataset.playlist = c.id;
+    b.append(el('span', '', c.name), el('span', 'n', String(c.n)));
+    b.addEventListener('click', () => {
+      state.scope = c.id;
+      renderChips();
+      renderPads();
+      setStatus('');
+    });
+    box.append(b);
+  }
+  const pl = activePlaylist();
+  $('rename-playlist').disabled = !pl;
+  $('delete-playlist').disabled = !pl;
+}
+
+/** The membership editor: which sets the inspected cue is in, one click each. */
+function renderCueSets(cue) {
+  const box = $('cue-sets');
+  box.textContent = '';
+  box.append(el('span', 'hint', 'playlists'));
+  if (!cue.id) { box.append(el('span', 'hint', '— save this cue before putting it in one')); return; }
+  if (!state.playlists.length) { box.append(el('span', 'hint', '— none yet; make one on the board')); return; }
+  for (const pl of state.playlists) {
+    const on = pl.cues.includes(cue.id);
+    const b = el('button', 'chip' + (on ? ' on' : ''));
+    b.textContent = pl.name;
+    b.title = `${on ? 'Remove' : 'Add'} ${cue.name} ${on ? 'from' : 'to'} ${pl.name}`;
+    b.addEventListener('click', guard(() => toggleMembership(pl, cue)));
+    box.append(b);
+  }
+}
+
+async function toggleMembership(pl, cue) {
+  const cues = pl.cues.includes(cue.id)
+    ? pl.cues.filter((id) => id !== cue.id)
+    : [...pl.cues, cue.id];
+  const saved = await savePlaylist({ ...pl, cues });
+  renderCueSets(cue);
+  renderChips();
+  renderPads();
+  setStatus(`${cue.name} ${cues.length > pl.cues.length ? 'added to' : 'removed from'} ${saved.name}`);
+}
+
+async function savePlaylist(input) {
+  const { playlist } = await post('/api/playlist', input);
+  const at = state.playlists.findIndex((p) => p.id === playlist.id);
+  if (at >= 0) state.playlists[at] = playlist; else state.playlists.push(playlist);
+  return playlist;
+}
+
+async function loadPlaylists() {
+  const { playlists } = await get('/api/playlists');
+  state.playlists = playlists;
+  // A scope whose playlist has gone is a filter that would hide everything.
+  if (state.scope && !playlists.some((p) => p.id === state.scope)) state.scope = '';
+  renderChips();
+}
+
+/* --- downloads ------------------------------------------------------------
+   Two things leave the board: the audio and the code. Both take the active set
+   -- the playlist, or the whole library -- not what the search box happens to
+   be narrowing to, so what you get is the set you named rather than whatever
+   you last typed. */
+
+function scopeName() {
+  const pl = activePlaylist();
+  return pl ? pl.id : 'library';
+}
+
+async function downloadWavs() {
+  const cues = scopeCues();
+  if (!cues.length) { setStatus('this set has no cues to download', true); return; }
+  const pl = activePlaylist();
+
+  const files = [];
+  const rows = [];
+  for (const [i, cue] of cues.entries()) {
+    setStatus(`rendering ${i + 1}/${cues.length}…`);
+    const { buffer, measure } = await A.renderAndMeasure(cue, { params: cue.values, gain: cue.gain });
+    files.push({ name: `${cue.id}.wav`, data: A.toWav(buffer, { seconds: measure.duration }) });
+    rows.push([`${cue.id}.wav`, cue.name, `${measure.duration.toFixed(3)}s`,
+      `peak ${fmtDb(measure.peakDb)}`, `rms ${fmtDb(measure.rmsDb)}`, cue.description || '']);
+  }
+  files.push({ name: 'manifest.txt', data: manifest(pl, rows) });
+
+  download(`${scopeName()}-wavs.zip`, new Blob([zip(files)], { type: 'application/zip' }));
+  setStatus(`${cues.length} wavs — ${scopeName()}-wavs.zip`);
+}
+
+/** What the folder holds, so the ids in it are not the only description. */
+function manifest(pl, rows) {
+  const w = [0, 1, 2, 3, 4].map((i) => Math.max(...rows.map((r) => r[i].length)));
+  const head = pl
+    ? `piezo — ${pl.name}${pl.description ? `\n${pl.description}` : ''}`
+    : 'piezo — the whole library';
+  const lines = rows.map((r) => r.slice(0, 5).map((c, i) => c.padEnd(w[i])).join('  ')
+    + (r[5] ? `  ${r[5]}` : ''));
+  return [head, `${rows.length} cues, 16-bit mono WAV at 44.1 kHz. Levels in dBFS.`, '', ...lines, ''].join('\n');
+}
+
+async function downloadModule() {
+  const pl = activePlaylist();
+  if (pl && !scopeCues().length) { setStatus('this set has no cues to export', true); return; }
+  const res = await post('/api/export', pl ? { playlist: pl.id } : {});
+  download(pl ? `${pl.id}.cues.js` : 'cues.js', new Blob([res.code], { type: 'text/javascript' }));
+  setStatus(`wrote ${res.path} — ${res.cues} cues, ${res.bytes} bytes`);
+}
+
 /* --- inspector ----------------------------------------------------------- */
 
 function select(cue) {
@@ -181,6 +336,7 @@ function renderInspector() {
   $('code-status').textContent = cue._error ? cue._error : '';
   $('code-status').className = cue._error ? 'hint err' : 'hint';
 
+  renderCueSets(cue);
   renderParams(cue);
   renderMeasure(cue);
   draw(cue);
@@ -707,6 +863,7 @@ async function save(cue) {
 async function loadLibrary() {
   const { cues } = await get('/api/library');
   state.cues = cues;
+  await loadPlaylists();
   renderPads();
   for (const cue of state.cues) {
     try { await remeasure(cue); } catch (err) { cue._error = err.message; }
@@ -727,6 +884,12 @@ async function matchOne(cue) {
 /* --- wiring -------------------------------------------------------------- */
 
 const status = (msg, bad) => { $('status').textContent = msg; $('status').className = bad ? 'sub err' : 'sub'; };
+const setStatus = (msg, bad) => {
+  const shown = visibleCues().length, all = scopeCues().length;
+  const scope = state.search.trim() && shown !== all ? `showing ${shown} of ${all}` : '';
+  $('set-status').textContent = [scope, msg].filter(Boolean).join(' · ');
+  $('set-status').className = bad ? 'hint err' : 'hint';
+};
 const genStatus = (msg, bad) => { $('gen-status').textContent = msg; $('gen-status').className = bad ? 'hint err' : 'hint'; };
 const setBusy = (on) => { $('generate').disabled = on; $('refine').disabled = on; };
 
@@ -775,6 +938,50 @@ $('target-rms').addEventListener('change', (e) => {
   if (state.sel) renderMeasure(state.sel);
 });
 
+$('search').addEventListener('input', (e) => {
+  state.search = e.target.value;
+  renderPads();
+  setStatus('');
+});
+
+$('new-playlist').addEventListener('click', guard(async () => {
+  const name = prompt('Name the playlist')?.trim();
+  if (!name) return;
+  const pl = await savePlaylist({ name, cues: [] });
+  state.scope = pl.id;
+  renderChips();
+  renderPads();
+  if (state.sel) renderCueSets(state.sel);
+  setStatus(`made ${pl.name} — put cues in it from the inspector`);
+}));
+
+$('rename-playlist').addEventListener('click', guard(async () => {
+  const pl = activePlaylist();
+  if (!pl) return;
+  const name = prompt('Rename the playlist', pl.name)?.trim();
+  if (!name || name === pl.name) return;
+  // The id is the export filename and what the PLAYLISTS map is keyed on, so
+  // renaming changes the label and leaves the id alone.
+  await savePlaylist({ ...pl, name });
+  renderChips();
+  if (state.sel) renderCueSets(state.sel);
+  setStatus(`renamed to ${name}`);
+}));
+
+$('delete-playlist').addEventListener('click', guard(async () => {
+  const pl = activePlaylist();
+  if (!pl || !confirm(`Delete the playlist "${pl.name}"? Its ${pl.cues.length} cues stay in the library.`)) return;
+  await post(`/api/playlist/${encodeURIComponent(pl.id)}`, undefined, 'DELETE');
+  state.scope = '';
+  await loadPlaylists();
+  renderPads();
+  if (state.sel) renderCueSets(state.sel);
+  setStatus(`deleted the playlist ${pl.name}`);
+}));
+
+$('dl-wavs').addEventListener('click', guard(downloadWavs));
+$('dl-module').addEventListener('click', guard(downloadModule));
+
 $('bake-off').addEventListener('click', guard(runBakeoff));
 $('load-run').addEventListener('click', guard(() => loadRun($('run-pick').value)));
 $('clear-run').addEventListener('click', () => { state.compare = []; renderCompare(); runStatus(''); });
@@ -820,6 +1027,7 @@ $('delete').addEventListener('click', guard(async () => {
   state.cues = state.cues.filter((c) => c.id !== cue.id);
   state.sel = null;
   $('inspector').hidden = true;
+  await loadPlaylists();     // the server dropped it from every set that held it
   renderPads();
   status(`deleted ${cue.name}`);
 }));
@@ -881,6 +1089,20 @@ window.__piezo = {
   audio,
   fire: (id) => { const c = state.cues.find((x) => x.id === id); if (c) fire(c); return !!c; },
   remeasure,
+  zip,
+  visibleCues: () => visibleCues().map((c) => c.id),
+  setScope: (id) => { state.scope = id; renderChips(); renderPads(); return visibleCues().map((c) => c.id); },
+  setSearch: (q) => { state.search = q; renderPads(); return visibleCues().map((c) => c.id); },
+  loadPlaylists,
+  wavsOf: async (ids) => {
+    const out = [];
+    for (const id of ids) {
+      const cue = state.cues.find((c) => c.id === id);
+      const { buffer, measure } = await A.renderAndMeasure(cue, { params: cue.values, gain: cue.gain });
+      out.push({ name: `${cue.id}.wav`, data: A.toWav(buffer, { seconds: measure.duration }) });
+    }
+    return out;
+  },
   measureAll: async () => {
     const out = {};
     for (const cue of state.cues) {

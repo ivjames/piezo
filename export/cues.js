@@ -4,8 +4,8 @@
  *
  *   import { play } from './cues.js';
  *   const ctx = new AudioContext();
- *   play(ctx, 'pc-boot');
- *   play(ctx, 'pc-hurt', { gain: 0.5, params: { pitch: 160 } });
+ *   play(ctx, "pc-boot");
+ *   play(ctx, "pc-key", { gain: 0.5, params: { pitch: 160 } });
  *
  * Every cue is (ctx, t0, out, p) => endTime and schedules everything up front,
  * so firing is cheap and cues overlap freely. Regenerate, do not hand-edit.
@@ -798,6 +798,13 @@ export const CUES = {
 };
 
 export const CUE_NAMES = Object.keys(CUES);
+
+/* The named sets this library is grouped into. A game that only wants one
+ * of them can iterate it: PLAYLISTS.ui.forEach((n) => preload(n)).
+ */
+export const PLAYLISTS = {
+  "pc-speaker": ["pc-boot","pc-key","pc-move","pc-bump","pc-take","pc-hurt","pc-bear","pc-fire","pc-flare","pc-win","pc-lose"],
+};
 
 /**
  * Fire a cue.
