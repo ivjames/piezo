@@ -22,6 +22,7 @@ const state = {
   history: [],
   dirty: false,
   target: -20,
+  compare: [],       // bake-off candidates, grouped for A/B
 };
 
 /* --- live audio ---------------------------------------------------------- */
@@ -447,6 +448,150 @@ export function diffLines(a, b) {
   return out;
 }
 
+/* --- bake-off comparison -------------------------------------------------
+   A run is a table of numbers until you can hear it. This puts one row per
+   prompt on the board, one pad per model, so the same description can be
+   fired back to back across models and kept if it wins. */
+
+async function loadRuns() {
+  const { runs } = await get('/api/bakeoff');
+  const pick = $('run-pick');
+  pick.textContent = '';
+  if (!runs.length) {
+    pick.append(new Option('no runs yet — npm run bakeoff', ''));
+    $('load-run').disabled = true;
+    return;
+  }
+  $('load-run').disabled = false;
+  for (const r of runs) pick.append(new Option(r.replace(/\.json$/, ''), r));
+}
+
+async function loadRun(name) {
+  const run = await get(`/api/bakeoff/${encodeURIComponent(name)}`);
+  state.compare = (run.results || []).map((r, i) => ({
+    id: null,
+    name: r.cue?.name || `${r.model} candidate`,
+    description: r.cue?.description || '',
+    prompt: r.prompt,
+    code: r.cue?.code || '',
+    params: r.cue?.params || [],
+    values: r.cue?.values || {},
+    gain: 1,
+    key: '',
+    measure: r.measure && !r.measure.error ? r.measure : null,
+    _model: r.model.replace('claude-', '') + (r.effort ? ` @${r.effort}` : ''),
+    _verdict: verdictOf(r),
+    _usage: r.usage,
+    _i: i,
+  }));
+  renderCompare();
+  runStatus(`${state.compare.length} candidates from ${name.replace(/\.json$/, '')}`);
+}
+
+/* Same rule the CLI applies, so the pad and the table can't disagree. */
+function verdictOf(r) {
+  if (!r.ok) return 'api-error';
+  const m = r.measure;
+  if (!m || m.error) return 'threw';
+  if (!(m.peak > 0.005)) return 'silent';
+  if (m.peak > 0.99) return 'clipped';
+  if (m.duration < 0.004 || m.duration > 8) return 'bad-length';
+  if (r.warnings?.length) return 'lint';
+  return 'pass';
+}
+
+function renderCompare() {
+  const box = $('compare');
+  box.textContent = '';
+  const byPrompt = new Map();
+  for (const c of state.compare) {
+    if (!byPrompt.has(c.prompt)) byPrompt.set(c.prompt, []);
+    byPrompt.get(c.prompt).push(c);
+  }
+
+  for (const [prompt, cands] of byPrompt) {
+    const row = el('div', 'cmp-row');
+    const q = el('div', 'q');
+    q.append(el('span', '', prompt));
+    const all = el('button', '', '▶ all');
+    all.title = 'Fire every model\'s take on this prompt, back to back';
+    all.addEventListener('click', () => fireSequence(cands));
+    q.append(all);
+    row.append(q);
+
+    const cells = el('div', 'cmp-cells');
+    for (const c of cands) {
+      const pad = el('button', 'pad');
+      if (state.sel === c) pad.classList.add('sel');
+      const head = el('div', 'n');
+      head.append(el('span', 'model', c._model));
+      const cls = c._verdict === 'pass' ? 'pass' : c._verdict === 'lint' ? 'lint' : 'bad';
+      head.append(el('span', `verdict ${cls}`, c._verdict));
+      pad.append(head);
+
+      const m = c.measure;
+      const nums = el('div', 'nums');
+      if (m) {
+        nums.append(el('span', '', `${m.duration.toFixed(2)}s`), el('span', '', fmtHz(m.centroid)));
+        const b = el('div', 'nums');
+        b.append(el('span', '', `pk ${fmtDb(m.peakDb)}`), el('span', hotness(m.rmsDb), `rms ${fmtDb(m.rmsDb)}`));
+        pad.append(nums, b);
+      } else {
+        nums.append(el('span', 'clip', c._verdict));
+        pad.append(nums);
+      }
+      if (c._usage) pad.append(el('div', 'nums', `$${c._usage.costUsd.toFixed(4)}`));
+
+      pad.addEventListener('click', () => {
+        select(c);
+        renderCompare();
+        if (c.code) fire(c);
+        refreshSelected().catch(() => {});
+      });
+      cells.append(pad);
+
+      const keep = el('button', 'keep', 'keep');
+      keep.title = 'Save this candidate into the library';
+      keep.addEventListener('click', guard(async (e) => {
+        e.stopPropagation();
+        c.key = c.key || nextKey();
+        await save(c);
+        await loadLibrary();
+        runStatus(`kept ${c.name}`);
+      }));
+      const wrap = el('div');
+      wrap.append(pad, keep);
+      cells.append(wrap);
+    }
+    row.append(cells);
+    box.append(row);
+  }
+}
+
+/** Play candidates one after another, each starting where the last ended. */
+function fireSequence(cands) {
+  const c0 = audio();
+  let when = c0.currentTime + 0.05;
+  for (const c of cands) {
+    if (!c.code || !c.measure) continue;
+    const trim = c0.createGain();
+    trim.gain.value = c.gain ?? 1;
+    trim.connect(master);
+    try {
+      A.fire(c, c0, trim, { when, params: c.values });
+    } catch (err) {
+      status(`${c._model}: ${err.message}`, true);
+      trim.disconnect();
+      continue;
+    }
+    const dur = Math.max(0.15, c.measure.duration);
+    setTimeout(() => trim.disconnect(), (when - c0.currentTime + dur) * 1000 + 300);
+    when += dur + 0.25;      // a beat between takes, so they don't blur together
+  }
+}
+
+const runStatus = (msg, bad) => { $('run-status').textContent = msg; $('run-status').className = bad ? 'hint err' : 'hint'; };
+
 /* --- persistence --------------------------------------------------------- */
 
 async function save(cue) {
@@ -539,6 +684,9 @@ $('target-rms').addEventListener('change', (e) => {
   if (state.sel) renderMeasure(state.sel);
 });
 
+$('load-run').addEventListener('click', guard(() => loadRun($('run-pick').value)));
+$('clear-run').addEventListener('click', () => { state.compare = []; renderCompare(); runStatus(''); });
+
 $('generate').addEventListener('click', guard(() => generate(null)));
 $('refine').addEventListener('click', guard(() => generate($('prompt').value.trim())));
 $('prompt').addEventListener('keydown', (e) => {
@@ -627,6 +775,7 @@ const ready = (async () => {
   $('master-out').textContent = `${(20 * Math.log10(Number($('master').value))).toFixed(1)} dB`;
   state.target = Number($('target-rms').value);
   await loadLibrary();
+  await loadRuns().catch(() => {});
 })();
 
 ready.catch((err) => status(err.message, true));

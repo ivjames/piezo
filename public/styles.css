@@ -113,3 +113,17 @@ table.measure td.bad { color: var(--hot); }
 details summary { color: var(--dim); cursor: pointer; margin: 10px 0 6px; }
 .warnings { color: var(--warn); font-size: 12px; margin: 6px 0; }
 .err { color: var(--hot); }
+
+/* --- bake-off comparison --- */
+.compare { display: grid; gap: 12px; }
+.cmp-row { border-left: 2px solid var(--line); padding-left: 10px; }
+.cmp-row .q { color: var(--ink); font-size: 12px; margin-bottom: 6px; display: flex; gap: 8px; align-items: baseline; }
+.cmp-row .q button { padding: 2px 8px; font-size: 11px; }
+.cmp-cells { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; }
+.cmp-cells .pad .model { color: var(--accent); font-size: 11px; }
+.pad .verdict { font-size: 10px; text-transform: uppercase; letter-spacing: .08em; }
+.pad .verdict.pass { color: var(--accent); }
+.pad .verdict.lint { color: var(--warn); }
+.pad .verdict.bad { color: var(--hot); }
+.pad .keep { margin-top: 6px; font-size: 11px; padding: 2px 8px; }
+select { background: #0b0d10; color: var(--ink); border: 1px solid var(--line); border-radius: 3px; padding: 4px 6px; font: inherit; max-width: 320px; }

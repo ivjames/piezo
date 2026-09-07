@@ -146,8 +146,16 @@ npm run bakeoff -- --from bakeoff/<run>.json  # re-measure a past run, free
 It generates the same prompt set on each model, renders every candidate
 through the same `OfflineAudioContext` engine the board uses, and prints cost
 against outcome — plus a per-model line of clean/usable cues and dollars per
-usable cue. Runs are saved as JSON so a comparison can be re-measured later
-without paying for it twice.
+usable cue.
+
+**Then listen to it.** A table can tell you a candidate is 6 dB hot or has
+nothing below 400 Hz; it cannot tell you the door slam sounds like a stapler.
+Every run is saved to `bakeoff/`, and the board loads one: pick it in the
+**bake-off** panel and press *load*. You get a row per prompt and a pad per
+model — `▶ all` fires that row's candidates back to back with a beat between
+them, clicking one loads it into the inspector with its waveform, spectrum and
+code, and *keep* promotes the winner into the library. Reviewing a comparison
+by ear is the point; the numbers are there to tell you where to listen.
 
 Two things it will not tell you: whether a "thud" *sounds* like a thud (that's
 the centroid column and your ears), and anything about Haiku at a given effort
