@@ -118,15 +118,31 @@ try {
   //    are the round trip, that the export of a set is exactly that set in
   //    that order, that a dangling id is skipped rather than emitted, and
   //    that deleting a cue takes it out of every set holding it.
-  const PL = 'zz-verify-set';
+  //    This writes and then deletes records in the real library/ and
+  //    playlists/, so the ids it uses must be ones nothing else can own: a
+  //    nonce per run, and a check that neither is taken before anything is
+  //    written. A check that can destroy the corpus it is checking is worse
+  //    than no check.
+  const nonce = Math.random().toString(36).slice(2, 10);
+  const PL = `zz-verify-set-${nonce}`;
   const PL_FILE = path.join(ROOT, 'export', `${PL}.cues.js`);
-  const TMP_CUE = 'zz-verify-cue';
+  const TMP_CUE = `zz-verify-cue-${nonce}`;
+  const taken = [
+    cues.some((c) => c.id === TMP_CUE) && `cue ${TMP_CUE}`,
+    (await api(page, 'GET', '/api/playlists')).playlists.some((p) => p.id === PL) && `playlist ${PL}`,
+  ].filter(Boolean);
   const picked = cues.slice(0, 2).map((c) => c.id);
-  if (picked.length < 2) fail('playlist check: need at least two cues in the library');
-  else {
+  if (taken.length) {
+    // Refuse, and write nothing: the point of the nonce is that this never
+    // happens, and if it somehow does, someone's records are not this run's
+    // to overwrite.
+    fail(`playlist check: ${taken.join(' and ')} already exists — refusing to overwrite it`);
+  } else if (picked.length < 2) {
+    fail('playlist check: need at least two cues in the library');
+  } else {
     // A well-formed id for a cue that does not exist: allowed on disk (the cue
     // may be saved later), and skipped by the exporter rather than emitted.
-    const wanted = [picked[1], 'zz-no-such-cue', picked[0]];
+    const wanted = [picked[1], `zz-no-such-cue-${nonce}`, picked[0]];
     const saved = await api(page, 'POST', '/api/playlist',
       { id: PL, name: 'Verify Set', description: 'written by npm test', cues: wanted });
     if (saved.playlist?.id !== PL) fail(`playlist check: save returned ${JSON.stringify(saved.playlist?.id)}`);
@@ -204,7 +220,24 @@ try {
     if (PL in (clean.PLAYLISTS || {})) fail('playlist check: the test set is still in export/cues.js');
   }
 
-  // 6. The zip a playlist downloads as. Nobody here can open a zip by ear
+  // 6. The whole-library module exports PLAYLISTS whether or not there are
+  //    any. A named import of a name a module does not export is a link-time
+  //    error that fails the whole module, so a library with no playlists must
+  //    still emit the map rather than drop the export.
+  {
+    const { buildModule } = await import(pathToFileURL(path.join(ROOT, 'lib', 'exporter.mjs')).href);
+    const cue = { id: 'x', name: 'X', code: 'return t0;', params: [], values: {}, gain: 1 };
+    for (const [what, opts] of [['no playlists argument', undefined], ['an empty list', { playlists: [] }]]) {
+      if (!/export const PLAYLISTS = \{\};/.test(buildModule([cue], opts))) {
+        fail(`export check: a whole-library module built with ${what} does not export PLAYLISTS`);
+      }
+    }
+    if (/export const PLAYLISTS/.test(buildModule([cue], { playlist: { id: 'ui', name: 'UI' } }))) {
+      fail('export check: a per-playlist module should not export PLAYLISTS');
+    }
+  }
+
+  // 7. The zip a playlist downloads as. Nobody here can open a zip by ear
   //    either, so it is taken back apart: every entry's CRC recomputed, and
   //    the WAV that comes out compared byte for byte with the one that went
   //    in. A download that no unzipper accepts is exactly the sort of thing
@@ -220,7 +253,7 @@ try {
   }, picked);
   checkZip(Buffer.from(archive.zip), archive.files);
 
-  // 7. A cue that schedules before t0 renders live and throws under
+  // 8. A cue that schedules before t0 renders live and throws under
   //    measurement, so the board has to say which happened and keep the
   //    bake-off verdict on the same story as the measurement under it.
   const early = await page.evaluate(async () => {

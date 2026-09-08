@@ -165,15 +165,21 @@ subclass, and then:
 5. round-trips a playlist through the API and asserts the per-playlist module
    is exactly that set in that order, that a cue id with no cue behind it is
    skipped rather than emitted, that the board's filter and search agree, and
-   that deleting a cue prunes it from the playlists holding it;
-6. zips two rendered cues, takes the archive back apart in Node — central
+   that deleting a cue prunes it from the playlists holding it. It writes into
+   the real `library/` and `playlists/`, so its fixture ids carry a per-run
+   nonce and it refuses to run at all rather than overwrite a record that
+   already owns one;
+6. asserts a whole-library module exports `PLAYLISTS` whether or not there
+   are any — a named import of a name a module does not export is a link-time
+   error, so the map has to be there and empty rather than absent;
+7. zips two rendered cues, takes the archive back apart in Node — central
    directory, local headers, a CRC recomputed bit by bit rather than with the
    writer's own table — and asserts every entry survives byte for byte;
-7. renders a cue that schedules an event before `t0` — legal-looking live,
+8. renders a cue that schedules an event before `t0` — legal-looking live,
    fatal offline — and asserts the board explains the browser's message and
    drops the bake-off verdict to `threw` rather than leaving a stale `pass`
    over the top of the exception;
-8. fails on any page error, console error or failed request.
+9. fails on any page error, console error or failed request.
 
 It prints the whole library as a table, which is the fastest way to see the
 level spread across the board.
@@ -238,7 +244,9 @@ play(ctx, 'pc-hurt', { gain: 0.5, params: { from: 160 } });
 returns the time the cue finishes. Regenerate it; don't hand-edit it.
 
 It also carries the playlists, so a game that imports the whole library can
-still address one set:
+still address one set. `PLAYLISTS` is always exported, `{}` when there are
+none — dropping the export on an empty library would break the import below
+at link time, not at use:
 
 ```js
 import { play, PLAYLISTS } from './cues.js';

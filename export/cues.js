@@ -800,7 +800,7 @@ export const CUES = {
 export const CUE_NAMES = Object.keys(CUES);
 
 /* The named sets this library is grouped into. A game that only wants one
- * of them can iterate it: PLAYLISTS.ui.forEach((n) => preload(n)).
+ * of them can iterate it: PLAYLISTS['ui'].forEach((n) => preload(n)).
  */
 export const PLAYLISTS = {
   "pc-speaker": ["pc-boot","pc-key","pc-move","pc-bump","pc-take","pc-hurt","pc-bear","pc-fire","pc-flare","pc-win","pc-lose"],
