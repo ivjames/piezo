@@ -2,8 +2,9 @@
 
 A board for designing game sound cues by prompt: you describe a sound, Claude
 writes a Web Audio program for it, the page runs it, measures it offline, and
-you keep the ones that work. Cues save to `library/` and export as a drop-in
-ES module for a game.
+you keep the ones that work. Cues save to `library/`, group into named
+playlists in `playlists/`, and leave as a zip of WAVs or a drop-in ES module —
+per playlist, or for the whole library.
 
 Platform conventions — branch, PR, Codex review, merging is not deploying —
 are in `.claude/rules/lab980-conventions.md`, which is generated from
@@ -54,6 +55,23 @@ cues, so measurement is the only check there is: see the README's "Verifying"
 section for what it asserts and why. `npm test` needs a Chromium that Playwright
 can find; Playwright is a devDependency, which matters at deploy time (see
 `DEPLOY.md`).
+
+## Playlists
+
+`playlists/<id>.json` is a name and a list of cue ids. The reference points
+that way on purpose: a cue can be in several sets at once, and adding one to a
+set writes the set's file rather than the cue's. Tracked in git like
+`library/`, and subject to the same thing on the droplet — a deploy re-syncs
+the checkout, so a playlist made on the hosted board arrives in the repo by PR
+or not at all.
+
+Deleting a cue prunes it from every playlist holding it (`Playlists.forget`);
+that is the only dangling reference this shape can produce, so it is handled
+where it happens rather than tolerated at read time.
+
+`docs/CONTRACT.md` says nothing about playlists, correctly — they are not part
+of the cue, so the contract and the system prompt in `lib/agent.mjs` do not
+move when a playlist does.
 
 ## The cue contract
 

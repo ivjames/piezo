@@ -11,6 +11,7 @@
  *   node test/verify.mjs           check
  *   node test/verify.mjs --write   check, then write measurements back to library/
  */
+import fs from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { chromium } from 'playwright';
@@ -113,7 +114,146 @@ try {
     if (typeof mod.CUES[cue.id]?.render !== 'function') fail(`export/cues.js: ${cue.id} has no render()`);
   }
 
-  // 5. A cue that schedules before t0 renders live and throws under
+  // 5. Playlists. A set is a file of cue ids, so the things worth asserting
+  //    are the round trip, that the export of a set is exactly that set in
+  //    that order, that a dangling id is skipped rather than emitted, and
+  //    that deleting a cue takes it out of every set holding it.
+  //    This writes and then deletes records in the real library/ and
+  //    playlists/, so the ids it uses must be ones nothing else can own: a
+  //    nonce per run, and a check that neither is taken before anything is
+  //    written. A check that can destroy the corpus it is checking is worse
+  //    than no check.
+  const nonce = Math.random().toString(36).slice(2, 10);
+  const PL = `zz-verify-set-${nonce}`;
+  const PL_FILE = path.join(ROOT, 'export', `${PL}.cues.js`);
+  const TMP_CUE = `zz-verify-cue-${nonce}`;
+  const taken = [
+    cues.some((c) => c.id === TMP_CUE) && `cue ${TMP_CUE}`,
+    (await api(page, 'GET', '/api/playlists')).playlists.some((p) => p.id === PL) && `playlist ${PL}`,
+  ].filter(Boolean);
+  const picked = cues.slice(0, 2).map((c) => c.id);
+  if (taken.length) {
+    // Refuse, and write nothing: the point of the nonce is that this never
+    // happens, and if it somehow does, someone's records are not this run's
+    // to overwrite.
+    fail(`playlist check: ${taken.join(' and ')} already exists — refusing to overwrite it`);
+  } else if (picked.length < 2) {
+    fail('playlist check: need at least two cues in the library');
+  } else {
+    // A well-formed id for a cue that does not exist: allowed on disk (the cue
+    // may be saved later), and skipped by the exporter rather than emitted.
+    const wanted = [picked[1], `zz-no-such-cue-${nonce}`, picked[0]];
+    const saved = await api(page, 'POST', '/api/playlist',
+      { id: PL, name: 'Verify Set', description: 'written by npm test', cues: wanted });
+    if (saved.playlist?.id !== PL) fail(`playlist check: save returned ${JSON.stringify(saved.playlist?.id)}`);
+    if (String(saved.playlist?.cues) !== String(wanted)) {
+      fail(`playlist check: cues came back as ${JSON.stringify(saved.playlist?.cues)}`);
+    }
+
+    const listed = (await api(page, 'GET', '/api/playlists')).playlists.find((p) => p.id === PL);
+    if (!listed) fail('playlist check: the saved playlist is not in GET /api/playlists');
+
+    // The whole-library module gains a PLAYLISTS map; it keeps every cue.
+    await api(page, 'POST', '/api/export', {});
+    const whole = await freshImport(path.join(ROOT, 'export', 'cues.js'));
+    if (whole.CUE_NAMES.length !== cues.length) {
+      fail(`playlist check: whole-library export dropped to ${whole.CUE_NAMES.length} cues`);
+    }
+    if (String(whole.PLAYLISTS?.[PL]) !== String(wanted)) {
+      fail(`playlist check: PLAYLISTS.${PL} is ${JSON.stringify(whole.PLAYLISTS?.[PL])}`);
+    }
+
+    // The per-playlist module is that set alone, in the playlist's order.
+    const res = await api(page, 'POST', '/api/export', { playlist: PL });
+    if (res.path !== `export/${PL}.cues.js`) fail(`playlist check: exported to ${res.path}`);
+    const only = await freshImport(PL_FILE);
+    const expect = wanted.filter((id) => cues.some((c) => c.id === id));
+    if (String(only.CUE_NAMES) !== String(expect)) {
+      fail(`playlist check: ${PL}.cues.js holds ${JSON.stringify(only.CUE_NAMES)}, expected ${JSON.stringify(expect)}`);
+    }
+    if ('PLAYLISTS' in only) fail('playlist check: a per-playlist module should not carry a PLAYLISTS map');
+    for (const id of expect) {
+      if (typeof only.CUES[id]?.render !== 'function') fail(`playlist check: ${id} has no render() in ${PL}.cues.js`);
+    }
+
+    // The board filters to the set, and the search box narrows within it.
+    const scoped = await page.evaluate(async (id) => {
+      await window.__piezo.loadPlaylists();
+      const inSet = window.__piezo.setScope(id);
+      const name = window.__piezo.state.cues.find((c) => c.id === inSet[0]).name;
+      const searched = window.__piezo.setSearch(name);
+      window.__piezo.setSearch('');
+      const all = window.__piezo.setScope('');
+      return { inSet, searched, all };
+    }, PL);
+    if (String(scoped.inSet) !== String(expect)) {
+      fail(`playlist check: the board shows ${JSON.stringify(scoped.inSet)} for the set, expected ${JSON.stringify(expect)}`);
+    }
+    if (!scoped.searched.length || scoped.searched.length >= scoped.inSet.length) {
+      fail(`playlist check: searching within the set returned ${scoped.searched.length} of ${scoped.inSet.length}`);
+    }
+    if (scoped.all.length !== cues.length) fail('playlist check: clearing the filter did not restore the library');
+
+    // Deleting a cue clears it out of the sets holding it. Done on a cue made
+    // for the purpose, so the library the rest of this run measured is intact.
+    const tmp = await api(page, 'POST', '/api/save', {
+      id: TMP_CUE, name: 'Verify Cue', code: 'const o = ctx.createOscillator();'
+        + ' o.connect(out); o.start(t0); o.stop(t0 + 0.05); return t0 + 0.05;',
+      params: [], values: {},
+    });
+    if (tmp.cue?.id !== TMP_CUE) fail(`playlist check: temp cue saved as ${JSON.stringify(tmp.cue?.id)}`);
+    await api(page, 'POST', '/api/playlist', { id: PL, name: 'Verify Set', cues: [...wanted, TMP_CUE] });
+    const del = await api(page, 'DELETE', `/api/cue/${TMP_CUE}`);
+    if (!del.playlists?.includes(PL)) fail(`playlist check: deleting a cue did not prune ${PL} (pruned ${JSON.stringify(del.playlists)})`);
+    const after = (await api(page, 'GET', '/api/playlists')).playlists.find((p) => p.id === PL);
+    if (after?.cues.includes(TMP_CUE)) fail('playlist check: the deleted cue is still in the playlist');
+
+    await api(page, 'DELETE', `/api/playlist/${PL}`);
+    if ((await api(page, 'GET', '/api/playlists')).playlists.some((p) => p.id === PL)) {
+      fail('playlist check: the playlist survived its own delete');
+    }
+    await fs.rm(PL_FILE, { force: true });
+
+    // Leave export/cues.js as the library's own, not this check's.
+    await api(page, 'POST', '/api/export', {});
+    const clean = await freshImport(path.join(ROOT, 'export', 'cues.js'));
+    if (PL in (clean.PLAYLISTS || {})) fail('playlist check: the test set is still in export/cues.js');
+  }
+
+  // 6. The whole-library module exports PLAYLISTS whether or not there are
+  //    any. A named import of a name a module does not export is a link-time
+  //    error that fails the whole module, so a library with no playlists must
+  //    still emit the map rather than drop the export.
+  {
+    const { buildModule } = await import(pathToFileURL(path.join(ROOT, 'lib', 'exporter.mjs')).href);
+    const cue = { id: 'x', name: 'X', code: 'return t0;', params: [], values: {}, gain: 1 };
+    for (const [what, opts] of [['no playlists argument', undefined], ['an empty list', { playlists: [] }]]) {
+      if (!/export const PLAYLISTS = \{\};/.test(buildModule([cue], opts))) {
+        fail(`export check: a whole-library module built with ${what} does not export PLAYLISTS`);
+      }
+    }
+    if (/export const PLAYLISTS/.test(buildModule([cue], { playlist: { id: 'ui', name: 'UI' } }))) {
+      fail('export check: a per-playlist module should not export PLAYLISTS');
+    }
+  }
+
+  // 7. The zip a playlist downloads as. Nobody here can open a zip by ear
+  //    either, so it is taken back apart: every entry's CRC recomputed, and
+  //    the WAV that comes out compared byte for byte with the one that went
+  //    in. A download that no unzipper accepts is exactly the sort of thing
+  //    that ships broken and stays broken.
+  const archive = await page.evaluate(async (ids) => {
+    const files = await window.__piezo.wavsOf(ids);
+    files.push({ name: 'manifest.txt', data: 'two cues\n' });
+    const bytes = window.__piezo.zip(files);
+    return {
+      zip: [...bytes],
+      files: files.map((f) => ({ name: f.name, bytes: [...new Uint8Array(f.data instanceof ArrayBuffer ? f.data : new TextEncoder().encode(f.data))] })),
+    };
+  }, picked);
+  checkZip(Buffer.from(archive.zip), archive.files);
+
+  // 8. A cue that schedules before t0 renders live and throws under
   //    measurement, so the board has to say which happened and keep the
   //    bake-off verdict on the same story as the measurement under it.
   const early = await page.evaluate(async () => {
@@ -190,6 +330,76 @@ if (failures.length) {
 console.log(`\nPASS — every cue renders, sounds, and stays under 0 dBFS.`);
 
 /* ------------------------------------------------------------------------ */
+
+/** Call the API from inside the page, so it is the same origin the board uses. */
+function api(page, method, path, body) {
+  return page.evaluate(async ([m, p, b]) => {
+    const r = await fetch(p, {
+      method: m,
+      headers: b === null ? {} : { 'content-type': 'application/json' },
+      body: b === null ? undefined : JSON.stringify(b),
+    });
+    const json = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(`${m} ${p}: ${json.error || r.status}`);
+    return json;
+  }, [method, path, body === undefined ? null : body]);
+}
+
+/** import() a generated module, past the ESM cache, since it is rewritten. */
+function freshImport(file) {
+  return import(pathToFileURL(file).href + `?t=${Date.now()}-${Math.random()}`);
+}
+
+/**
+ * Take a zip back apart and check it against what went into it: the end-of-
+ * central-directory record, one central header and one local header per entry,
+ * stored (never compressed), a CRC recomputed here bit by bit rather than with
+ * the archive's own table, and the payload byte for byte.
+ */
+function checkZip(buf, expected) {
+  const at = buf.length - 22;                       // no archive comment
+  if (at < 0 || buf.readUInt32LE(at) !== 0x06054b50) { fail('zip: no end-of-central-directory record'); return; }
+  const count = buf.readUInt16LE(at + 10);
+  const dirSize = buf.readUInt32LE(at + 12);
+  const dirAt = buf.readUInt32LE(at + 16);
+  if (count !== expected.length) fail(`zip: says ${count} entries, ${expected.length} went in`);
+  if (dirAt + dirSize !== at) fail(`zip: the central directory does not end where the EOCD begins`);
+
+  let p = dirAt;
+  for (let i = 0; i < count; i++) {
+    if (buf.readUInt32LE(p) !== 0x02014b50) { fail(`zip: entry ${i} has no central header`); return; }
+    const nameLen = buf.readUInt16LE(p + 28);
+    const name = buf.toString('utf8', p + 46, p + 46 + nameLen);
+    const local = buf.readUInt32LE(p + 42);
+    p += 46 + nameLen + buf.readUInt16LE(p + 30) + buf.readUInt16LE(p + 32);
+
+    const want = expected[i];
+    if (name !== want.name) { fail(`zip: entry ${i} is ${JSON.stringify(name)}, expected ${JSON.stringify(want.name)}`); continue; }
+    if (buf.readUInt32LE(local) !== 0x04034b50) { fail(`zip: ${name} has no local header`); continue; }
+    if (buf.readUInt16LE(local + 8) !== 0) { fail(`zip: ${name} is not stored`); continue; }
+    const size = buf.readUInt32LE(local + 18);
+    const localName = buf.readUInt16LE(local + 26);
+    const data = buf.subarray(local + 30 + localName + buf.readUInt16LE(local + 28),
+      local + 30 + localName + buf.readUInt16LE(local + 28) + size);
+
+    const bytes = Buffer.from(want.bytes);
+    if (size !== bytes.length) fail(`zip: ${name} is ${size} bytes, ${bytes.length} went in`);
+    else if (!data.equals(bytes)) fail(`zip: ${name} does not survive the round trip`);
+    const crc = buf.readUInt32LE(local + 14);
+    if (crc !== crc32(data)) fail(`zip: ${name} has crc ${crc.toString(16)}, computed ${crc32(data).toString(16)}`);
+  }
+}
+
+/* Bit by bit, and deliberately not the table-driven one in public/zip.mjs: a
+   checksum checked against itself checks nothing. */
+function crc32(bytes) {
+  let c = 0xffffffff;
+  for (const b of bytes) {
+    c ^= b;
+    for (let k = 0; k < 8; k++) c = c & 1 ? (c >>> 1) ^ 0xedb88320 : c >>> 1;
+  }
+  return (c ^ 0xffffffff) >>> 0;
+}
 
 function approx(what, got, want, tol) {
   if (!(Math.abs(got - want) <= tol)) fail(`${what}: got ${got}, expected ${want} ±${tol}`);

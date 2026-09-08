@@ -4,13 +4,19 @@
    and every one of them measurable -- so the board has something honest on it
    the first time you open it, and the tool starts out tied to a real game.
 
-   Idempotent: rewrites the seed files, leaves anything else in library/ alone.
-   Re-run with `npm run seed`. */
+   They also arrive as a playlist, because they are one: eleven cues from one
+   game on one piece of hardware, which is exactly the kind of set the library
+   is meant to hold several of rather than be.
+
+   Idempotent: rewrites the seed files and the seed playlist, and leaves
+   anything else in library/ and playlists/ alone. Re-run with `npm run seed`. */
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'library');
+const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
+const DIR = path.join(ROOT, 'library');
+const PLAYLIST_DIR = path.join(ROOT, 'playlists');
 
 /* The hardware, rebuilt per cue so each one stays self-contained. */
 const SPEAKER = `// IBM PC speaker: one 1-bit square wave through a ~1 inch piezo disc.
@@ -201,4 +207,24 @@ for (const [i, seed] of SEEDS.entries()) {
   };
   await fs.writeFile(file, JSON.stringify(record, null, 2) + '\n');
 }
-console.log(`seeded ${SEEDS.length} cues into ${path.relative(process.cwd(), DIR)}/`);
+
+const PLAYLIST = {
+  id: 'pc-speaker',
+  name: 'PC speaker',
+  description: 'The 1-bit cues ported from ivjames/forest: one square wave through a ~1 inch piezo disc.',
+  cues: SEEDS.map((s) => s.id),
+  order: 0,
+};
+
+await fs.mkdir(PLAYLIST_DIR, { recursive: true });
+const plFile = path.join(PLAYLIST_DIR, `${PLAYLIST.id}.json`);
+let plExisting = null;
+try { plExisting = JSON.parse(await fs.readFile(plFile, 'utf8')); } catch { /* new */ }
+await fs.writeFile(plFile, JSON.stringify({
+  ...PLAYLIST,
+  createdAt: plExisting?.createdAt || now,
+  updatedAt: now,
+}, null, 2) + '\n');
+
+console.log(`seeded ${SEEDS.length} cues into ${path.relative(process.cwd(), DIR)}/`
+  + ` and the ${PLAYLIST.name} playlist into ${path.relative(process.cwd(), PLAYLIST_DIR)}/`);
